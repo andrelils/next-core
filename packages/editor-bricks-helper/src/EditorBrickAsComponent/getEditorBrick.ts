@@ -23,11 +23,14 @@ export async function getEditorBrick(
   node: BuilderRuntimeNode
 ): Promise<string> {
   const tryEditorBricks: string[] = [];
+  let isCustomTemplate = false;
   if (isRouteNode(node)) {
     tryEditorBricks.push(ANY_ROUTE_EDITOR);
   } else if (isBrickNode(node)) {
     if (node.brick.includes("-")) {
       tryEditorBricks.push(`${node.brick}--editor`);
+      isCustomTemplate =
+        !node.brick.includes(".") && node.brick.startsWith("tpl-");
     }
     tryEditorBricks.push(ANY_BRICK_EDITOR);
   } else {
@@ -37,6 +40,9 @@ export async function getEditorBrick(
 
   for (const editorBrick of tryEditorBricks) {
     try {
+      // if (isCustomTemplate) {
+
+      // }
       await developHelper.loadEditorBricks([editorBrick]);
     } catch (error) {
       throw new Error(`Load editor brick "${editorBrick}" failed`);

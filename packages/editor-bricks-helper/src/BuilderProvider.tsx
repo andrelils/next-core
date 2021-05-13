@@ -8,8 +8,9 @@ import {
 
 export const BuilderProvider = React.memo(LegacyBuilderProvider);
 
-const instanceSymbol = Symbol.for("__BRICK_NEXT_BUILDER_CONTEXT_INSTANCE__");
-function createSingletonBuilderContext(): ContextOfBuilder {
+function createSingletonBuilderContext(
+  instanceSymbol: symbol
+): ContextOfBuilder {
   const ctx = window as any;
   if (!ctx[instanceSymbol]) {
     ctx[instanceSymbol] = createBuilderContext();
@@ -17,12 +18,22 @@ function createSingletonBuilderContext(): ContextOfBuilder {
   return ctx[instanceSymbol];
 }
 
-let refCount = 0;
+const refCountMap = new Map<symbol, number>();
+
+interface BuilderProviderProps {
+  templateId?: string;
+}
 
 function LegacyBuilderProvider({
+  templateId,
   children,
-}: React.PropsWithChildren<any>): React.ReactElement {
-  const context = createSingletonBuilderContext();
+}: React.PropsWithChildren<BuilderProviderProps>): React.ReactElement {
+  const instanceSymbol = Symbol.for(
+    templateId
+      ? `__BRICK_NEXT_BUILDER_CONTEXT_INSTANCE_OF_TPL_${templateId}__`
+      : "__BRICK_NEXT_BUILDER_CONTEXT_INSTANCE__"
+  );
+  const context = createSingletonBuilderContext(instanceSymbol);
 
   /**
    * If the global context was used to store the DND context
@@ -30,16 +41,16 @@ function LegacyBuilderProvider({
    * clean it up to avoid memory leaks
    */
   React.useEffect(() => {
-    refCount++;
+    refCountMap.set(instanceSymbol, (refCountMap.get(instanceSymbol) ?? 0) + 1);
 
     return () => {
-      refCount--;
+      refCountMap.set(instanceSymbol, refCountMap.get(instanceSymbol) - 1);
 
-      if (refCount === 0) {
+      if (refCountMap.get(instanceSymbol) === 0) {
         (window as any)[instanceSymbol] = null;
       }
     };
-  }, []);
+  }, [instanceSymbol]);
 
   return (
     <BuilderContext.Provider value={context}>
