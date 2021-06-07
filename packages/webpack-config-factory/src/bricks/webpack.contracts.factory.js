@@ -22,8 +22,8 @@ module.exports = (cwdDirname = process.cwd(), brickEntries) => {
     },
     output: {
       // During webpack building, assets are written into
-      // a temporary directory `dist-editors`.
-      // And later to be merged into `dist/editors` during post-building.
+      // a temporary directory `contracts.log`.
+      // And later to be processed during post-building.
       path: path.join(cwdDirname, "contracts.log", brick),
       publicPath: "/",
     },
@@ -69,7 +69,8 @@ module.exports = (cwdDirname = process.cwd(), brickEntries) => {
     plugins: [
       new webpack.IgnorePlugin({
         // Ignore all non-js files, which do not matter with contracts.
-        resourceRegExp: /\.(?:md|svga?|woff(2)?|ttf|eot|png|jpg|css|less|html)$/,
+        resourceRegExp:
+          /\.(?:md|svga?|woff(2)?|ttf|eot|png|jpg|css|less|html)$/,
       }),
       new CleanWebpackPlugin(),
       new NextDllReferencePlugin({

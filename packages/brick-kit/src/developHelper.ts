@@ -12,6 +12,7 @@ import {
   _dev_only_getTemplatePackages,
   _dev_only_getFakeKernel,
   _dev_only_loadEditorBricks,
+  _dev_only_loadPreviewBricks,
 } from "./core/exports";
 
 /** @internal */
@@ -31,6 +32,7 @@ export const developHelper = {
   getTemplatePackages: _dev_only_getTemplatePackages,
   getStoryboards: _dev_only_getStoryboards,
   loadEditorBricks: _dev_only_loadEditorBricks,
+  loadPreviewBricks: _dev_only_loadPreviewBricks,
   loadDynamicBricksInBrickConf: _dev_only_loadDynamicBricksInBrickConf,
   getFakeKernel: _dev_only_getFakeKernel,
 };

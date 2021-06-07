@@ -67,6 +67,13 @@ export function _dev_only_loadEditorBricks(
 }
 
 /* istanbul ignore next */
+export function _dev_only_loadPreviewBricks(
+  previewBricks: string[]
+): Promise<void> {
+  return kernel.loadPreviewBricks(previewBricks);
+}
+
+/* istanbul ignore next */
 export function _dev_only_getFakeKernel(
   overrides?: Record<string, unknown>
 ): Kernel {

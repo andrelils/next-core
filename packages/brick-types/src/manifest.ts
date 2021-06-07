@@ -197,6 +197,8 @@ export interface BrickPackage {
   bricks: string[];
   editors?: string[];
   editorsJsFilePath?: string;
+  previews?: string[];
+  previewsJsFilePath?: string;
   processors?: string[];
   providers?: string[];
   dll?: string[];

@@ -159,6 +159,34 @@ const mergeEditors = () => {
   }
 };
 
+// Just like `mergeEditors` but applied to preview bricks.
+const mergePreviews = () => {
+  const brickDir = process.cwd();
+  const distPreviewsDir = path.join(brickDir, "dist-previews");
+  const distPreviewsJsonPath = path.join(distPreviewsDir, "previews.json");
+  if (fs.existsSync(distPreviewsJsonPath)) {
+    const distDir = path.join(brickDir, "dist");
+    const bricksJsonPath = path.join(distDir, "bricks.json");
+    const bricksJson = fs.readJsonSync(bricksJsonPath);
+    fs.writeJsonSync(
+      bricksJsonPath,
+      {
+        ...bricksJson,
+        ...fs.readJsonSync(distPreviewsJsonPath),
+      },
+      {
+        spaces: 2,
+      }
+    );
+    fs.copySync(distPreviewsDir, path.join(distDir, "previews"), {
+      filter: (src) => {
+        return !src.endsWith("previews.json");
+      },
+    });
+    fs.removeSync(distPreviewsDir);
+  }
+};
+
 module.exports = (scope) => {
   if (scope === "libs") {
     return;
@@ -191,6 +219,7 @@ module.exports = (scope) => {
     }
     generateDeps();
     mergeEditors();
+    mergePreviews();
   } else if (scope === "micro-apps") {
     ensureMicroApp();
     ensureDeps();
