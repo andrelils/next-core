@@ -1,8 +1,9 @@
 import React, { useMemo } from "react";
 import { Empty } from "antd";
-import EmptyGreyImage from "./empty-grey-image.svg";
-import EmptyLightGreyImage from "./empty-light-grey-image.svg";
 import { getIllustration, IllustrationProps } from "@next-core/illustrations";
+import { ReactComponent as EmptyGreyImage } from "./empty-grey-image.svg";
+import { ReactComponent as EmptyLightGreyImage } from "./empty-light-grey-image.svg";
+
 // @internal
 export interface EasyopsEmptyProps {
   background?: string;
@@ -10,6 +11,7 @@ export interface EasyopsEmptyProps {
   imageStyle?: React.CSSProperties;
   illustration?: IllustrationProps;
 }
+
 /**
  * 用于展示空数据的 React 组件。
  */

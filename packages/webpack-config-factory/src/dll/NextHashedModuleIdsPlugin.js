@@ -55,12 +55,19 @@ class NextHashedModuleIdsPlugin {
                   .libIdent({
                     context: options.context || compiler.options.context,
                   })
-                  .replace("@next-core/", "@easyops/");
+                  .replace(
+                    /(\/node_modules\/@next-core\/[^/]+\/dist)\/esm\/index\.js$/,
+                    "$1/index.esm.js"
+                  )
+                  .replace(
+                    "/node_modules/@next-core/",
+                    "/node_modules/@easyops/"
+                  );
                 const hash = createHash(options.hashFunction);
                 hash.update(id);
-                const hashId = /** @type {string} */ (hash.digest(
-                  options.hashDigest
-                ));
+                const hashId = /** @type {string} */ (
+                  hash.digest(options.hashDigest)
+                );
                 let len = options.hashDigestLength;
                 while (usedIds.has(hashId.substr(0, len))) len++;
                 module.id = hashId.substr(0, len);

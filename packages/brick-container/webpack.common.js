@@ -98,17 +98,17 @@ module.exports = {
         },
       ],
     }),
-    new CopyPlugin({
-      patterns: [
-        {
-          from: `${path.resolve(
-            require.resolve("@next-core/illustrations/package.json"),
-            "../dist/illustrations"
-          )}`,
-          to: "assets/illustrations",
-        },
-      ],
-    }),
+    // new CopyPlugin({
+    //   patterns: [
+    //     {
+    //       from: `${path.resolve(
+    //         require.resolve("@next-core/illustrations/package.json"),
+    //         "../dist/illustrations"
+    //       )}`,
+    //       to: "assets/illustrations",
+    //     },
+    //   ],
+    // }),
     new HtmlWebpackPlugin({
       title: "DevOps 管理专家",
       baseHref,

@@ -10,6 +10,11 @@ const isProd = process.env.NODE_ENV === "production";
 const appRoot = path.join(__dirname, "..", "..");
 const distPath = path.join(__dirname, "dist");
 
+const regExpOfBrickIcons = /\/node_modules\/@next-core\/brick-icons\//;
+const regExpOfBrickKit = /\/node_modules\/@next-core\/brick-kit\//;
+const regExpOfColoredBrickIcons =
+  /\/icons\/colored-(?:pseudo-3d|common)\/[^/]+\.svg$/;
+
 module.exports = {
   context: appRoot,
   devtool: "source-map",
@@ -38,13 +43,48 @@ module.exports = {
     rules: [
       {
         test: /\.js$/,
+        exclude: /\/node_modules\/@easyops-cn\/brick-next-pipes\//,
         enforce: "pre",
         use: ["source-map-loader"],
+      },
+      {
+        // Include ts, tsx, js, and jsx files.
+        test: /\.(ts|js)x?$/,
+        include: /\/node_modules\/@easyops-cn\/brick-next-pipes\//,
+        loader: "babel-loader",
+        options: {
+          rootMode: "upward",
+        },
       },
       {
         // - `rc-editor-mention` (which required `draft-js`) is deprecated in `antd Mentions`
         test: /node_modules\/rc-editor-mention\//,
         use: "null-loader",
+      },
+      getSvgLoader({
+        resourceRules: {
+          or: [
+            { test: regExpOfBrickKit },
+            {
+              and: [
+                { test: regExpOfBrickIcons },
+                { test: regExpOfColoredBrickIcons },
+              ],
+            },
+          ],
+        },
+        convertColors: false,
+      }),
+      getSvgLoader({
+        resourceRules: {
+          test: regExpOfBrickIcons,
+          not: [{ test: regExpOfColoredBrickIcons }],
+        },
+        convertColors: true,
+      }),
+      {
+        test: /\.png$/,
+        use: [getUrlLoad()],
       },
     ],
   },
@@ -61,6 +101,7 @@ module.exports = {
       name: "[name]",
       path: path.join(distPath, "manifest.json"),
       format: !isProd,
+      entryOnly: true,
     }),
     new webpack.ContextReplacementPlugin(/moment[/\\]locale$/, /zh|en/),
     new NextHashedModuleIdsPlugin(),
@@ -81,3 +122,58 @@ module.exports = {
     hints: false,
   },
 };
+
+function getUrlLoad() {
+  return {
+    loader: "url-loader",
+    options: {
+      name: "assets/[name].[hash:8].[ext]",
+      limit: 8192,
+      esModule: false,
+    },
+  };
+}
+
+function getSvgLoader({ resourceRules, convertColors }) {
+  return {
+    resource: {
+      and: [
+        {
+          test: /\.svg$/,
+        },
+        ...[].concat(resourceRules),
+      ],
+    },
+    issuer: {
+      test: /\.(ts|js)x?$/,
+    },
+    use: [
+      {
+        loader: "babel-loader",
+        options: {
+          rootMode: "upward",
+        },
+      },
+      {
+        loader: "@svgr/webpack",
+        options: {
+          babel: false,
+          svgoConfig: {
+            plugins: [
+              {
+                // Keep `viewbox`
+                removeViewBox: false,
+              },
+              convertColors && {
+                convertColors: {
+                  currentColor: true,
+                },
+              },
+            ].filter(Boolean),
+          },
+        },
+      },
+      getUrlLoad(),
+    ],
+  };
+}

@@ -19,7 +19,12 @@ class NextDllReferencePlugin extends webpack.DllReferencePlugin {
         content: Object.fromEntries(
           Object.entries(options.manifest.content).map(([k, v]) => [
             // !!! Here's the replacement.
-            k.replace("@easyops/", "@next-core/"),
+            k
+              .replace("/node_modules/@easyops/", "/node_modules/@next-core/")
+              .replace(
+                /(\/node_modules\/@next-core\/[^/]+\/dist)\/index\.esm\.js$/,
+                "$1/esm/index.js"
+              ),
             v,
           ])
         ),

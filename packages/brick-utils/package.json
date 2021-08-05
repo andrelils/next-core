@@ -4,8 +4,8 @@
   "description": "Pure utility functions for kernel",
   "homepage": "https://github.com/easyops-cn/next-core/tree/master/packages/brick-utils",
   "license": "GPL-3.0",
-  "main": "dist/index.bundle.js",
-  "module": "dist/index.esm.js",
+  "main": "dist/esm/index.js",
+  "module": "dist/esm/index.js",
   "typings": "dist/types/index.d.ts",
   "files": [
     "dist"
@@ -21,8 +21,8 @@
     "start:rollup": "cross-env NODE_ENV='development' rollup --watch --config rollup.config.js",
     "start:types": "tsc --watch --emitDeclarationOnly --declaration --declarationDir dist/types",
     "prebuild": "npm run clean",
-    "build": "npm run build:types && npm run build:rollup",
-    "build:rollup": "cross-env NODE_ENV='production' rollup --config rollup.config.js",
+    "build": "npm run build:types && npm run build:main",
+    "build:main": "cross-env NODE_ENV='production' build-next-libs",
     "build:types": "tsc --emitDeclarationOnly --declaration --declarationDir dist/types",
     "test": "cross-env NODE_ENV='test' jest",
     "test:ci": "cross-env NODE_ENV='test' CI=true jest"
@@ -36,6 +36,7 @@
     "path-to-regexp": "^6.2.0"
   },
   "devDependencies": {
+    "@next-core/build-next-libs": "^0.0.0",
     "js-yaml": "^3.14.1",
     "lodash": "^4.17.21",
     "moment": "^2.29.1"

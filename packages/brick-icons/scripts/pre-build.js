@@ -36,9 +36,11 @@ const groupedIcons = Object.entries(_.groupBy(flattenIcons, "category"));
 for (const [category, icons] of groupedIcons) {
   const imports = icons.map(
     (icon) =>
-      `import ${changeCase.pascalCase(category)}${changeCase.pascalCase(
-        icon.basename
-      )} from "../../icons/${icon.relativePath}";`
+      `import { ReactComponent as ${changeCase.pascalCase(
+        category
+      )}${changeCase.pascalCase(icon.basename)} } from "../../icons/${
+        icon.relativePath
+      }";`
   );
   const exports = `export const ${changeCase.camelCase(category)}Category = {
     ${icons

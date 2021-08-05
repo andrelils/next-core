@@ -59,9 +59,31 @@ class NextLibManifestPlugin {
                     context: this.options.context || compiler.options.context,
                   });
                   if (ident) {
+                    // const nodeModules = "/node_modules/@next-core/";
+                    // const lastIndex = ident.lastIndexOf(nodeModules);
+                    // if (
+                    //   lastIndex !== -1 &&
+                    //   !/^[^/]+\/(?:index|dist\/(?:index\.esm|esm\/index))\.js$/.test(
+                    //     ident.substr(lastIndex + nodeModules.length)
+                    //   )
+                    // ) {
+                    //   // For `@next-core/*` only mark the entry only, which includes:
+                    //   //   - `@next-core/*/index.js`,
+                    //   //   - `@next-core/*/dist/index.esm.js`
+                    //   //   - `@next-core/*/dist/esm/index.js`
+                    //   return;
+                    // }
                     return {
                       // !!! Here's the replacement.
-                      ident: ident.replace("@next-core/", "@easyops/"),
+                      ident: ident
+                        .replace(
+                          /(\/node_modules\/@next-core\/[^/]+\/dist)\/esm\/index\.js$/,
+                          "$1/index.esm.js"
+                        )
+                        .replace(
+                          "/node_modules/@next-core/",
+                          "/node_modules/@easyops/"
+                        ),
                       data: {
                         id: module.id,
                         buildMeta: module.buildMeta,

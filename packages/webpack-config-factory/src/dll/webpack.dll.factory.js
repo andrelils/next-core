@@ -51,6 +51,17 @@ module.exports = () => {
           enforce: "pre",
           use: ["source-map-loader"],
         },
+        {
+          test: /\.module\.css$/,
+          use: [
+            "style-loader",
+            ...getStyleLoaders({
+              modules: {
+                localIdentName: "[local]--[hash:base64:8]",
+              },
+            }),
+          ],
+        },
       ],
     },
     plugins: [
@@ -59,6 +70,8 @@ module.exports = () => {
       new NextDllPlugin({
         name: "[name]",
         path: path.join(distPath, "manifest.json"),
+        format: !isProd,
+        entryOnly: true,
       }),
       new NextHashedModuleIdsPlugin(),
     ],
@@ -74,3 +87,31 @@ module.exports = () => {
     },
   };
 };
+
+function getCssLoader(cssOptions) {
+  return {
+    loader: "css-loader",
+    options: {
+      // Todo(steve): based on env.
+      sourceMap: false,
+      ...cssOptions,
+    },
+  };
+}
+
+function getStyleLoaders(cssOptions) {
+  return [
+    getCssLoader(cssOptions),
+    {
+      loader: "postcss-loader",
+      options: {
+        ident: "postcss",
+        sourceMap: false,
+        plugins: () => [
+          require("postcss-nested")(),
+          require("postcss-preset-env")(),
+        ],
+      },
+    },
+  ];
+}

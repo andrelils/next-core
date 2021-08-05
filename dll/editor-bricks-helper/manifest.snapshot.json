@@ -1,110 +1,21 @@
 {
   "name": "DllOfEditorBricksHelper",
   "content": {
-    "dll-reference DllOfReactDnd": {
-      "id": "/8r5",
-      "buildMeta": { "providedExports": true }
-    },
-    "./node_modules/@babel/runtime/helpers/objectSpread2.js": {
-      "id": "3tO9",
-      "buildMeta": { "providedExports": true }
-    },
-    "./node_modules/@easyops/brick-utils/dist/index.esm.js": {
-      "id": "A+yw",
-      "buildMeta": {
-        "exportsType": "namespace",
-        "providedExports": [
-          "JsonStorage",
-          "PrecookVisitor",
-          "asyncProcessBrick",
-          "asyncProcessStoryboard",
-          "computeRealRoutePath",
-          "convertValueByPrecision",
-          "cook",
-          "createProviderClass",
-          "deepFreeze",
-          "formatValue",
-          "getDependencyMapOfContext",
-          "getDepsOfTemplates",
-          "getDllAndDepsByResource",
-          "getDllAndDepsOfBricks",
-          "getDllAndDepsOfStoryboard",
-          "getTemplateDepsOfStoryboard",
-          "hasOwnProperty",
-          "inject",
-          "isBrickNode",
-          "isCustomTemplateNode",
-          "isEvaluable",
-          "isObject",
-          "isRouteNode",
-          "isSnippetNode",
-          "loadScript",
-          "mapCustomApisToNameAndNamespace",
-          "matchPath",
-          "normalizeBuilderNode",
-          "pipes",
-          "precook",
-          "preevaluate",
-          "prefetchScript",
-          "resolveContextConcurrently",
-          "restoreDynamicTemplates",
-          "scanBricksInBrickConf",
-          "scanBricksInStoryboard",
-          "scanCustomApisInStoryboard",
-          "scanI18NInAny",
-          "scanI18NInStoryboard",
-          "scanPermissionActionsInAny",
-          "scanPermissionActionsInStoryboard",
-          "scanProcessorsInAny",
-          "scanProcessorsInStoryboard",
-          "scanRouteAliasInStoryboard",
-          "scanStoryboard",
-          "scanTemplatesInBrick",
-          "scanTemplatesInStoryboard",
-          "shouldAllowRecursiveEvaluations",
-          "smartDisplayForEvaluableString",
-          "toPath",
-          "trackContext",
-          "transform"
-        ]
-      }
-    },
-    "./node_modules/@babel/runtime/helpers/decorate.js": {
-      "id": "ACCw",
-      "buildMeta": { "providedExports": true }
-    },
-    "./node_modules/react-dnd/dist/esm/index.js": {
-      "id": "IYwU",
-      "buildMeta": { "exportsType": "namespace", "providedExports": true }
-    },
-    "./node_modules/lodash/lodash.js": {
-      "id": "LvDl",
-      "buildMeta": { "providedExports": true }
-    },
-    "./node_modules/@babel/runtime/helpers/objectWithoutProperties.js": {
-      "id": "QILm",
-      "buildMeta": { "providedExports": true }
-    },
     "./node_modules/@easyops/editor-bricks-helper/dist/index.esm.js": {
       "id": "WnDu",
       "buildMeta": {
         "exportsType": "namespace",
         "providedExports": [
-          "isBrickNode",
-          "isCustomTemplateNode",
-          "isRouteNode",
-          "isSnippetNode",
           "BuilderDataTransferType",
-          "BuilderProvider",
-          "DropZone",
-          "DroppingStatusContext",
           "EditorBrickType",
-          "EditorContainer",
-          "EditorElementFactory",
           "EditorSelfLayout",
           "EditorSlotContentLayout",
+          "EditorContainer",
+          "DropZone",
           "SlotContainer",
-          "getSortedIdsAfterDropped",
+          "EditorElementFactory",
+          "DroppingStatusContext",
+          "BuilderProvider",
           "useBuilderContextMenuStatus",
           "useBuilderData",
           "useBuilderDataManager",
@@ -114,97 +25,18 @@
           "useBuilderParentNode",
           "useCanDrop",
           "useCanvasList",
+          "useRouteList",
           "useHighlightNodes",
           "useHoverNodeUid",
           "useOutlineEnabled",
-          "useRouteList",
-          "useShowRelatedNodesBasedOnEvents"
+          "useShowRelatedNodesBasedOnEvents",
+          "getSortedIdsAfterDropped",
+          "isRouteNode",
+          "isBrickNode",
+          "isCustomTemplateNode",
+          "isSnippetNode"
         ]
       }
-    },
-    "dll-reference dll": {
-      "id": "XuQu",
-      "buildMeta": { "providedExports": true }
-    },
-    "./node_modules/js-yaml/index.js": {
-      "id": "ZR4k",
-      "buildMeta": { "providedExports": true }
-    },
-    "./node_modules/react-dom/index.js": {
-      "id": "i8i4",
-      "buildMeta": { "providedExports": true }
-    },
-    "./node_modules/@babel/runtime/helpers/defineProperty.js": {
-      "id": "lSNA",
-      "buildMeta": { "providedExports": true }
-    },
-    "./node_modules/react/index.js": {
-      "id": "q1tI",
-      "buildMeta": { "providedExports": true }
-    },
-    "./node_modules/react-dnd-html5-backend/dist/esm/index.js": {
-      "id": "qJlv",
-      "buildMeta": {
-        "exportsType": "namespace",
-        "providedExports": ["getEmptyImage", "NativeTypes", "HTML5Backend"]
-      }
-    },
-    "./node_modules/@easyops/brick-kit/dist/index.esm.js": {
-      "id": "tYg3",
-      "buildMeta": {
-        "exportsType": "namespace",
-        "providedExports": [
-          "BrickAsComponent",
-          "BrickWrapper",
-          "DisplayByFeatureFlags",
-          "EasyopsEmpty",
-          "ErrorBoundary",
-          "FeatureFlagsProvider",
-          "ForwardRefSingleBrickAsComponent",
-          "ModalElement",
-          "SingleBrickAsComponent",
-          "UpdatingElement",
-          "authenticate",
-          "checkIf",
-          "checkIfByTransform",
-          "createHistory",
-          "createRuntime",
-          "developHelper",
-          "doTransform",
-          "event",
-          "getAuth",
-          "getHistory",
-          "getRuntime",
-          "handleHttpError",
-          "httpErrorToString",
-          "i18nText",
-          "initI18n",
-          "isLoggedIn",
-          "logout",
-          "looseCheckIf",
-          "looseCheckIfByTransform",
-          "looseCheckIfOfComputed",
-          "method",
-          "preprocessTransformProperties",
-          "property",
-          "reTransformForDevtools",
-          "renderEasyopsEmpty",
-          "transformElementProperties",
-          "transformIntermediateData",
-          "transformProperties",
-          "useApplyPageTitle",
-          "useCurrentApp",
-          "useCurrentMode",
-          "useCurrentTheme",
-          "useFeatureFlags",
-          "useLocation",
-          "useRecentApps"
-        ]
-      }
-    },
-    "./node_modules/@babel/runtime/helpers/asyncToGenerator.js": {
-      "id": "yXPU",
-      "buildMeta": { "providedExports": true }
     }
   }
 }
