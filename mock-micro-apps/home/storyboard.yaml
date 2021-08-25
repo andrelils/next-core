@@ -4,6 +4,13 @@ app:
   homepage: /
 imports:
 - '@next-bricks/basic-bricks'
+meta:
+  functions:
+  - name: myTestFunc
+    function: |
+      function myTestFunc(data) {
+        return data;
+      }
 routes:
 - path: ${APP.homepage}
   context:

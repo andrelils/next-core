@@ -55,7 +55,7 @@ export const PrecookVisitor = Object.freeze<
 
     const cookedParamNames: string[] = [];
     const paramState = spawnPrecookState(state, {
-      collectParamNamesOnly: cookedParamNames,
+      collectVariableNamesOnly: cookedParamNames,
     });
     for (const param of node.params) {
       callback(param, paramState);
@@ -75,7 +75,7 @@ export const PrecookVisitor = Object.freeze<
     callback(node.body, bodyState);
   },
   AssignmentPattern(node: AssignmentPattern, state, callback) {
-    if (state.collectParamNamesOnly) {
+    if (state.collectVariableNamesOnly) {
       callback(node.left, state);
       return;
     }
@@ -100,8 +100,8 @@ export const PrecookVisitor = Object.freeze<
     callback(node.alternate, state);
   },
   Identifier(node: Identifier, state) {
-    if (state.collectParamNamesOnly) {
-      state.collectParamNamesOnly.push(node.name);
+    if (state.collectVariableNamesOnly) {
+      state.collectVariableNamesOnly.push(node.name);
       return;
     }
 

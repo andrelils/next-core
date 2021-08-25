@@ -1,8 +1,12 @@
-import { Expression } from "@babel/types";
+import { Expression, FunctionDeclaration } from "@babel/types";
 
 export interface ChainExpression {
   type: "ChainExpression";
   expression: Expression;
+}
+
+export interface PrecookOptions {
+  visitors?: Record<string, VisitorFn<PrecookVisitorState>>;
 }
 
 export type PrecookScope = Set<string>;
@@ -12,7 +16,8 @@ export interface PrecookVisitorState {
   closures: PrecookScope[];
   attemptToVisitGlobals: Set<string>;
   identifierAsLiteralString?: boolean;
-  collectParamNamesOnly?: string[];
+  collectVariableNamesOnly?: string[];
+  isFunction?: boolean;
 }
 
 export interface PrecookResult {
@@ -25,6 +30,7 @@ export type CookScope = Map<string, CookScopeRef>;
 
 export type CookScopeRef = {
   initialized: boolean;
+  const?: boolean;
   cooked?: any;
 };
 
@@ -34,15 +40,28 @@ export interface CookVisitorState<T = any> {
   closures: CookScope[];
   identifierAsLiteralString?: boolean;
   spreadAsProperties?: boolean;
-  collectParamNamesOnly?: string[];
-  cookParamOnly?: boolean;
-  argReceived?: any;
+  collectVariableNamesOnly?: string[];
+  assignment?: {
+    operator?: string;
+    initializeOnly?: boolean;
+    rightCooked?: unknown;
+  };
   chainRef?: {
     skipped?: boolean;
   };
   memberCooked?: {
     object: ObjectCooked;
     property: PropertyCooked;
+  };
+  returns?: {
+    returned: boolean;
+    cooked?: unknown;
+  };
+  switches?: {
+    discriminantCooked: unknown;
+    tested: boolean;
+    // Broken or returned.
+    terminated: boolean;
   };
   cooked?: T;
 }
@@ -58,3 +77,9 @@ export type VisitorFn<T> = (
   state: T,
   callback: VisitorCallback<T>
 ) => void;
+
+export interface PrefeastResult {
+  source: string;
+  function: FunctionDeclaration;
+  attemptToVisitGlobals: Set<string>;
+}
