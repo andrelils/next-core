@@ -167,6 +167,8 @@ describe("cook", () => {
     ],
     ["[1,2,3].slice(1)", [2, 3]],
     ["[1, ...DATA.for, 2]", [1, "g", "o", "o", "d", 2]],
+    // eslint-disable-next-line no-sparse-arrays
+    ["[1, , 2]", [1, , 2]],
     ["[-1].concat(0, ...[1, 2], 3)", [-1, 0, 1, 2, 3]],
     ["[-1]?.concat(0, ...[1, 2], 3)", [-1, 0, 1, 2, 3]],
     [
@@ -231,6 +233,10 @@ describe("cook", () => {
     ["DATA.number5 |> PIPES.string", "5"],
     // Sequential pipeline operators with an arrow function.
     ["DATA.number5 |> (_ => _ + 1) |> PIPES.string", "6"],
+    // Reuse arrow functions.
+    ["(fn => fn(2)+fn())((a=1)=>a)", 3],
+    // Nested arrow functions
+    ["((a)=>(b)=>a+b)(1)(2)", 3],
     ["new Set([1, 2, 3])", new Set([1, 2, 3])],
     ["new Array(1, ...[2, 3])", [1, 2, 3]],
     [
@@ -267,7 +273,6 @@ describe("cook", () => {
     "DATA.number5?.toFixed.oo.ps",
     "DATA.number5.toFixed?.().oops()",
     "(DATA.notExisted?.length).oops",
-    "[1, , 2]",
     "[...DATA]",
     "[...null]",
     "[...undefined]",
@@ -300,6 +305,8 @@ describe("cook", () => {
     "(Set => new Set())(() => null)",
     "1`a${1}b`",
     "c`a${1}b`",
+    // Reuse arrow functions.
+    "(fn => fn(2,1)+fn())((a=b,b)=>a)",
     // Todo(steve)
     // "_.wrap(_.method('constructor.assign',{a:1},{b:2}),(func,...a) => func(...a))({})"
   ])("cook(precook(%j), {...}) should throw", (input) => {

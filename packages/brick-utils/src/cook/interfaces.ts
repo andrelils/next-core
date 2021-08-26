@@ -1,4 +1,5 @@
-import { Expression, FunctionDeclaration } from "@babel/types";
+import { Expression, FunctionDeclaration, Node, VariableDeclaration } from "@babel/types";
+import { CookScope, PrecookScope } from "./Scope";
 
 export interface ChainExpression {
   type: "ChainExpression";
@@ -9,38 +10,37 @@ export interface PrecookOptions {
   visitors?: Record<string, VisitorFn<PrecookVisitorState>>;
 }
 
-export type PrecookScope = Set<string>;
+// export type PrecookScope = Set<string>;
 
 export interface PrecookVisitorState {
-  currentScope: PrecookScope;
-  closures: PrecookScope[];
+  scopeStack: PrecookScope[];
   attemptToVisitGlobals: Set<string>;
+  scopeMapByNode: WeakMap<Node, PrecookScope>;
   identifierAsLiteralString?: boolean;
-  collectVariableNamesOnly?: string[];
-  isFunction?: boolean;
+  collectVariableNamesAsKind?: ScopeVariableKind;
+  isFunctionBody?: boolean;
+  hoistOnly?: boolean;
 }
+
+export type ScopeVariableKind = "param" | VariableDeclaration["kind"] | "functions";
 
 export interface PrecookResult {
   source: string;
   expression: Expression;
   attemptToVisitGlobals: Set<string>;
+  scopeMapByNode: WeakMap<Node, PrecookScope>;
 }
-
-export type CookScope = Map<string, CookScopeRef>;
-
-export type CookScopeRef = {
-  initialized: boolean;
-  const?: boolean;
-  cooked?: any;
-};
 
 export interface CookVisitorState<T = any> {
   source: string;
-  currentScope: CookScope;
-  closures: CookScope[];
+  // baseScopeStack: CookScope[];
+  scopeMapByNode: WeakMap<Node, PrecookScope>;
+  scopeStack?: CookScope[];
   identifierAsLiteralString?: boolean;
   spreadAsProperties?: boolean;
-  collectVariableNamesOnly?: string[];
+  // collectVariableNamesAsKind?: ScopeVariableKind;
+  isFunctionBody?: boolean;
+  // hoistOnly?: boolean;
   assignment?: {
     operator?: string;
     initializeOnly?: boolean;
@@ -82,4 +82,5 @@ export interface PrefeastResult {
   source: string;
   function: FunctionDeclaration;
   attemptToVisitGlobals: Set<string>;
+  scopeMapByNode: WeakMap<Node, PrecookScope>;
 }

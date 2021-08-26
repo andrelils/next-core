@@ -1,7 +1,7 @@
 import lodash from "lodash";
 import moment from "moment";
-import { CookScope } from "./interfaces";
 import { PipeRegistry } from "../placeholder/pipes";
+import { CookScope, FLAG_SANDBOX } from "./Scope";
 
 export function supply(
   attemptToVisitGlobals: Set<string>,
@@ -21,15 +21,15 @@ export function supply(
     }
   }
 
-  return new Map(
-    Array.from(globalMap.entries()).map((entry) => [
-      entry[0],
-      {
-        cooked: entry[1],
-        initialized: true,
-      },
-    ])
-  );
+  const scope = new CookScope(FLAG_SANDBOX);
+  for (const [key, value] of globalMap.entries()) {
+    scope.lexical.set(key, {
+      initialized: true,
+      cooked: value,
+    })
+  }
+
+  return scope;
 }
 
 const shouldOmitInLodash = new Set([

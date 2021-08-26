@@ -23,17 +23,16 @@ import {
 import {
   VisitorFn,
   PrecookVisitorState,
-  PrecookScope,
   ChainExpression,
 } from "./interfaces";
-import { spawnPrecookState, getScopes } from "./utils";
+import { FLAG_FUNCTION, PrecookScope } from "./Scope";
+import { addVariableToPrecookScopeStack, spawnPrecookState/* , getScopes */ } from "./utils";
 
 export const PrecookVisitor = Object.freeze<
   Record<string, VisitorFn<PrecookVisitorState>>
 >({
   ArrayExpression(node: ArrayExpression, state, callback) {
     for (const element of node.elements) {
-      // 🚫Sparse arrays are not allowed.
       if (element !== null) {
         callback(element, state);
       }
@@ -41,7 +40,6 @@ export const PrecookVisitor = Object.freeze<
   },
   ArrayPattern(node: ArrayPattern, state, callback) {
     for (const element of node.elements) {
-      // 🚫Sparse arrays are not allowed.
       if (element !== null) {
         callback(element, state);
       }
@@ -53,20 +51,19 @@ export const PrecookVisitor = Object.freeze<
       return;
     }
 
-    const cookedParamNames: string[] = [];
-    const paramState = spawnPrecookState(state, {
-      collectVariableNamesOnly: cookedParamNames,
+    const newScope = new PrecookScope(FLAG_FUNCTION);
+    const newScopeStack = state.scopeStack.concat(newScope);
+    const bodyState = spawnPrecookState(state, {
+      scopeStack: newScopeStack,
+    });
+    state.scopeMapByNode.set(node, newScope);
+
+    const collectParamNamesState = spawnPrecookState(bodyState, {
+      collectVariableNamesAsKind: "param",
     });
     for (const param of node.params) {
-      callback(param, paramState);
+      callback(param, collectParamNamesState);
     }
-
-    const currentScope: PrecookScope = new Set(cookedParamNames);
-    const bodyState: PrecookVisitorState = {
-      currentScope,
-      closures: getScopes(state),
-      attemptToVisitGlobals: state.attemptToVisitGlobals,
-    };
 
     for (const param of node.params) {
       callback(param, bodyState);
@@ -75,7 +72,7 @@ export const PrecookVisitor = Object.freeze<
     callback(node.body, bodyState);
   },
   AssignmentPattern(node: AssignmentPattern, state, callback) {
-    if (state.collectVariableNamesOnly) {
+    if (state.collectVariableNamesAsKind) {
       callback(node.left, state);
       return;
     }
@@ -100,8 +97,12 @@ export const PrecookVisitor = Object.freeze<
     callback(node.alternate, state);
   },
   Identifier(node: Identifier, state) {
-    if (state.collectVariableNamesOnly) {
-      state.collectVariableNamesOnly.push(node.name);
+    if (state.collectVariableNamesAsKind) {
+      addVariableToPrecookScopeStack(
+        node.name,
+        state.collectVariableNamesAsKind,
+        state.scopeStack
+      );
       return;
     }
 
@@ -109,9 +110,8 @@ export const PrecookVisitor = Object.freeze<
       return;
     }
 
-    const scopes = getScopes(state);
-    for (const scope of scopes) {
-      if (scope.has(node.name)) {
+    for (let i = state.scopeStack.length - 1; i >= 0; i--) {
+      if (state.scopeStack[i].has(node.name)) {
         return;
       }
     }
@@ -126,6 +126,9 @@ export const PrecookVisitor = Object.freeze<
     callback(node.right, state);
   },
   MemberExpression(node: MemberExpression, state, callback) {
+    if (state.hoistOnly) {
+      return;
+    }
     callback(node.object, state);
     callback(
       node.property,

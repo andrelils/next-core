@@ -23,13 +23,13 @@ import {
 import {
   VisitorFn,
   CookVisitorState,
-  CookScope,
   PropertyEntryCooked,
   ObjectCooked,
   PropertyCooked,
   ChainExpression,
 } from "./interfaces";
-import { spawnCookState, getScopes } from "./utils";
+import { CookScopeStackFactory } from "./Scope";
+import { spawnCookState } from "./utils";
 
 const SupportedConstructorSet = new Set([
   "Array",
@@ -46,27 +46,28 @@ export const CookVisitor = Object.freeze<
 >({
   ArrayExpression(
     node: ArrayExpression,
-    state: CookVisitorState<any[]>,
+    state: CookVisitorState<unknown[]>,
     callback
   ) {
-    const cookedElements = [];
+    const cookedElements: unknown[] = [];
+    let index = 0;
     for (const element of node.elements) {
-      if (element === null) {
-        throw new SyntaxError(
-          `Sparse arrays are not allowed: \`${state.source.substring(
-            node.start,
-            node.end
-          )}\``
-        );
-      }
-      const elementState = spawnCookState(state);
-      callback(element, elementState);
-      if (element.type === "SpreadElement") {
-        cookedElements.push(...elementState.cooked);
+      if (element !== null) {
+        const elementState = spawnCookState(state) as CookVisitorState<unknown[]>;
+        callback(element, elementState);
+        if (element.type === "SpreadElement") {
+          for (let i = 0; i < elementState.cooked.length; i++) {
+            cookedElements[index + i] = elementState.cooked[i];
+          }
+          index += elementState.cooked.length;
+        } else {
+          cookedElements[index] = elementState.cooked;
+          index += 1;
+        }
       } else {
-        cookedElements.push(elementState.cooked);
+        index += 1;
       }
-    }
+    };
     state.cooked = cookedElements;
   },
   ArrayPattern(node: ArrayPattern, state, callback) {
@@ -96,21 +97,6 @@ export const CookVisitor = Object.freeze<
       });
       return;
     }
-
-    // istanbul ignore else
-    if (state.collectVariableNamesOnly) {
-      node.elements.forEach((element) => {
-        if (element === null) {
-          throw new SyntaxError(
-            `Sparse arrays are not allowed: \`${state.source.substring(
-              node.start,
-              node.end
-            )}\``
-          );
-        }
-        callback(element, state);
-      });
-    }
     // Should nerve reach here.
   },
   ArrowFunctionExpression(
@@ -136,28 +122,11 @@ export const CookVisitor = Object.freeze<
       );
     }
 
-    const cookedParamNames: string[] = [];
-    const paramState: CookVisitorState<string> = spawnCookState(state, {
-      collectVariableNamesOnly: cookedParamNames,
-    });
-    for (const param of node.params) {
-      callback(param, paramState);
-    }
-
-    state.cooked = function (...args: any[]) {
-      const currentScope: CookScope = new Map();
-      const bodyState: CookVisitorState = {
-        currentScope,
-        closures: getScopes(state),
-        source: state.source,
-      };
-
-      // For function parameters, define the current scope first.
-      for (const paramName of cookedParamNames) {
-        currentScope.set(paramName, {
-          initialized: false,
-        });
-      }
+    state.cooked = function (...args: unknown[]) {
+      const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
+      const bodyState: CookVisitorState = spawnCookState(state, {
+        scopeStack,
+      });
 
       node.params.forEach((param, index) => {
         const variableInitValue =
@@ -197,10 +166,10 @@ export const CookVisitor = Object.freeze<
       return;
     }
 
-    // istanbul ignore else
-    if (state.collectVariableNamesOnly) {
+    /* // istanbul ignore else
+    if (state.collectVariableNamesAsKind) {
       callback(node.left, state);
-    }
+    } */
     // Should nerve reach here.
   },
   BinaryExpression(node: BinaryExpression, state, callback) {
@@ -343,23 +312,55 @@ export const CookVisitor = Object.freeze<
       state.cooked = alternateState.cooked;
     }
   },
-  Identifier(node: Identifier, state: CookVisitorState<string>) {
+  Identifier(node: Identifier, state: CookVisitorState) {
     if (state.assignment?.initializeOnly) {
-      const ref = state.currentScope.get(node.name);
-      ref.cooked = state.assignment.rightCooked;
-      ref.initialized = true;
-      return;
+      for (let i = state.scopeStack.length - 1; i >= 0; i--) {
+        const ref = state.scopeStack[i].get(node.name);
+        if (ref) {
+          ref.cooked = state.assignment.rightCooked;
+          ref.initialized = true;
+          return;
+        }
+      }
+      throw new ReferenceError(`Assignment left-hand side "${node.name}" is not found`);
     }
-    if (state.collectVariableNamesOnly) {
-      state.collectVariableNamesOnly.push(node.name);
+    /* if (state.collectVariableNamesAsKind) {
+      // state.collectVariableNamesAsKind.push(node.name);
+      addVariableToCookScopeStack(
+        node.name,
+        state.collectVariableNamesAsKind,
+        state.scopeStack
+      );
       return;
-    }
+    } */
     if (state.identifierAsLiteralString) {
       state.cooked = node.name;
       return;
     }
 
-    const scopes = getScopes(state);
+    for (let i = state.scopeStack.length - 1; i >= 0; i--) {
+      const ref = state.scopeStack[i].get(node.name);
+      if (ref) {
+        if (!ref.initialized) {
+          throw new ReferenceError(
+            `Cannot access '${node.name}' before initialization`
+          );
+        }
+        if (state.assignment) {
+          if (ref.const) {
+            throw new TypeError(
+              `Assignment to constant variable`
+            );
+          }
+          performAssignment(state.assignment.operator, ref as unknown as Record<string, unknown>, "cooked", state.assignment.rightCooked);
+        } else {
+          state.cooked = ref.cooked;
+        }
+        return;
+      }
+    }
+
+    /* const scopes = getScopes(state);
     for (const scope of scopes) {
       if (scope.has(node.name)) {
         const ref = scope.get(node.name);
@@ -380,7 +381,7 @@ export const CookVisitor = Object.freeze<
         }
         return;
       }
-    }
+    } */
 
     throw new ReferenceError(`${node.name} is not defined`);
   },
@@ -550,12 +551,12 @@ export const CookVisitor = Object.freeze<
       return;
     }
 
-    // istanbul ignore else
-    if (state.collectVariableNamesOnly) {
+    /* // istanbul ignore else
+    if (state.collectVariableNamesAsKind) {
       for (const prop of node.properties) {
         callback(prop, state);
       }
-    }
+    } */
     // Should nerve reach here.
   },
   Property(
@@ -563,10 +564,10 @@ export const CookVisitor = Object.freeze<
     state: CookVisitorState<PropertyEntryCooked>,
     callback
   ) {
-    if (state.collectVariableNamesOnly) {
+    /* if (state.collectVariableNamesAsKind) {
       callback(node.value, state);
       return;
-    }
+    } */
 
     const keyState: CookVisitorState<PropertyCooked> = spawnCookState(state, {
       identifierAsLiteralString: !node.computed,

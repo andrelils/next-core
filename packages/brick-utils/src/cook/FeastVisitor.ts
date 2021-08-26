@@ -1,7 +1,8 @@
 import { AssignmentExpression, BlockStatement, BreakStatement, ExpressionStatement, FunctionDeclaration, IfStatement, ReturnStatement, SwitchCase, SwitchStatement, VariableDeclaration } from "@babel/types";
-import { CookScope, CookVisitorState, VisitorFn } from "./interfaces";
+import { CookVisitorState, VisitorFn } from "./interfaces";
 import { CookVisitor } from "./CookVisitor";
-import { getScopes, spawnCookState } from "./utils";
+import { spawnCookState } from "./utils";
+import { CookScopeStackFactory } from "./Scope";
 
 export const FeastVisitor = Object.freeze<
   Record<string, VisitorFn<CookVisitorState>>
@@ -22,14 +23,12 @@ export const FeastVisitor = Object.freeze<
     state.cooked = rightState.cooked;
   },
   BlockStatement(node: BlockStatement, state, callback) {
-    const currentScope: CookScope = new Map();
-    const bodyState: CookVisitorState = {
-      currentScope,
-      closures: getScopes(state),
-      source: state.source,
+    const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
+    const bodyState = spawnCookState(state, {
+      scopeStack,
       returns: state.returns,
       switches: state.switches,
-    };
+    })
     for (const statement of node.body) {
       callback(statement, bodyState);
       if (bodyState.returns.returned) {
@@ -56,25 +55,34 @@ export const FeastVisitor = Object.freeze<
       );
     }
 
-    const cookedParamNames: string[] = [];
+    // const cookedParamNames: string[] = [];
 
     state.cooked = function (...args: unknown[]) {
-      const currentScope: CookScope = new Map();
-      const bodyState: CookVisitorState = {
-        currentScope,
-        closures: getScopes(state),
-        source: state.source,
+      const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
+      const bodyState: CookVisitorState = spawnCookState(state, {
+        scopeStack,
+        isFunctionBody: true,
         returns: {
           returned: false,
         },
-      };
+      });
+      // const currentScope: CookScope = new Map();
+      // const bodyState: CookVisitorState = {
+      //   currentScope,
+      //   closures: getScopes(state),
+      //   source: state.source,
+      //   isFunctionBody: true,
+      //   returns: {
+      //     returned: false,
+      //   },
+      // };
 
       // For function parameters, define the current scope first.
-      for (const paramName of cookedParamNames) {
+      /* for (const paramName of cookedParamNames) {
         currentScope.set(paramName, {
           initialized: false,
         });
-      }
+      } */
 
       node.params.forEach((param, index) => {
         const variableInitValue =
@@ -95,7 +103,7 @@ export const FeastVisitor = Object.freeze<
       return bodyState.returns.cooked;
     };
 
-    state.currentScope.set(
+    /* state.currentScope.set(
       node.id.name, {
         initialized: true,
         cooked: state.cooked,
@@ -103,11 +111,11 @@ export const FeastVisitor = Object.freeze<
     );
 
     const paramNameState: CookVisitorState<string> = spawnCookState(state, {
-      collectVariableNamesOnly: cookedParamNames,
+      collectVariableNamesAsKind: cookedParamNames,
     });
     for (const param of node.params) {
       callback(param, paramNameState);
-    }
+    } */
   },
   IfStatement(node: IfStatement, state, callback) {
     const testState = spawnCookState(state);
@@ -152,40 +160,32 @@ export const FeastVisitor = Object.freeze<
     }
   },
   SwitchStatement(node: SwitchStatement, state, callback) {
+    let switchState = state;
     const discriminantState = spawnCookState(state);
     callback(node.discriminant, discriminantState);
-    const switchState = spawnCookState(state, {
+    const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
+    switchState = spawnCookState(state, {
+      scopeStack,
+      returns: state.returns,
       switches: {
         discriminantCooked: discriminantState.cooked,
         tested: false,
         terminated: false,
       },
-      returns: state.returns,
-    })
+    });
+
     for (const switchCase of node.cases) {
-      const switchCaseState = spawnCookState(switchState, {
-        switches: switchState.switches,
-        returns: state.returns,
-      });
-      callback(switchCase, switchCaseState);
-      if (switchCaseState.switches.terminated) {
+      callback(switchCase, switchState);
+      if (switchState.switches.terminated) {
         break;
       }
     }
   },
   VariableDeclaration(node: VariableDeclaration, state, callback) {
-    if (node.kind === "var") {
-      throw new SyntaxError(
-        `\`var\` is not allowed, please use \`let\` or \`const\` instead. Received: \`${state.source.substring(
-          node.start,
-          node.end
-        )}\``
-      );
-    }
-    // Todo(steve): collect scope variables (and functions) across the current scope.
+    /* // Todo(steve): collect scope variables (and functions) across the current scope.
     const declarationNames: string[] = [];
     const declarationNameState = spawnCookState(state, {
-      collectVariableNamesOnly: declarationNames,
+      collectVariableNamesAsKind: declarationNames,
     });
     for (const declaration of node.declarations) {
       callback(declaration.id, declarationNameState);
@@ -195,7 +195,7 @@ export const FeastVisitor = Object.freeze<
         initialized: false,
         const: node.kind === "const",
       });
-    }
+    } */
     for (const declaration of node.declarations) {
       let initCooked;
       if (declaration.init) {

@@ -6,6 +6,7 @@ import {
   PrefeastResult,
 } from "./interfaces";
 import { PrefeastVisitor } from "./PrefeastVisitor";
+import { FLAG_GLOBAL, PrecookScope } from "./Scope";
 import { walkFactory } from "./utils";
 
 export function prefeast(
@@ -22,9 +23,11 @@ export function prefeast(
   }
   const func = body[0] as FunctionDeclaration;
   const state: PrecookVisitorState = {
-    currentScope: new Set(),
-    closures: [],
+    scopeStack: [
+      new PrecookScope(FLAG_GLOBAL)
+    ],
     attemptToVisitGlobals: new Set(),
+    scopeMapByNode: new WeakMap(),
   };
   walkFactory(
     options?.visitors
@@ -44,5 +47,6 @@ export function prefeast(
     source,
     function: func,
     attemptToVisitGlobals: state.attemptToVisitGlobals,
+    scopeMapByNode: state.scopeMapByNode,
   };
 }

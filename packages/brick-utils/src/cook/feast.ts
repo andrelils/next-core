@@ -3,6 +3,7 @@ import { walkFactory } from "./utils";
 import { FeastVisitor } from "./FeastVisitor";
 import { CookVisitorState, PrefeastResult } from "./interfaces";
 import { supply } from "./supply";
+import { CookScope, FLAG_GLOBAL } from "./Scope";
 
 export function feast(
   prefeasted: PrefeastResult,
@@ -10,8 +11,11 @@ export function feast(
 ): unknown {
   const state: CookVisitorState = {
     source: prefeasted.source,
-    currentScope: new Map(),
-    closures: [supply(prefeasted.attemptToVisitGlobals, globalVariables)],
+    scopeMapByNode: prefeasted.scopeMapByNode,
+    scopeStack: [
+      new CookScope(FLAG_GLOBAL),
+      supply(prefeasted.attemptToVisitGlobals, globalVariables),
+    ],
   };
   walkFactory(FeastVisitor, (node: Node) => {
     throw new SyntaxError(

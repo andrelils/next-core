@@ -5,17 +5,208 @@ const consoleWarn = jest
   .mockImplementation(() => void 0);
 
 describe("prefeast", () => {
-  it.skip("should parse", () => {
-    const result = prefeast(
+  it.each<[string, string, string[]]>([
+    [
+      "lexical variables in block statement",
       `
         function test(a) {
-          for (const h of m) {
-            let k = h;
+          {
+            let b;
           }
+          if (true) {
+            let c;
+          }
+          switch (true) {
+            case true:
+              let d;
+          }
+          for (let e of x) {
+            let f;
+          }
+          for (let g in y) {
+            let h;
+          }
+          for (let i, j; i < 0; i += 1) {
+            let j;
+          }
+          return test + a + b + c + d + e + f + g + h + i + j;
         }
+      `,
+      ["x", "y", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
+    ],
+    [
+      "var variables in block statement of if",
       `
-    );
-    console.log(result.function.body);
+        function test(a) {
+          if (true) {
+            var c;
+          }
+          return b + c;
+        }
+      `,
+      ["b"],
+    ],
+    [
+      "var variables hoist",
+      `
+        function test(a) {
+          const x = b + c + d + e + f + g + h + i + j + k + l;
+          if (true) {
+            function c(){}
+          } else {
+            function d(){}
+          }
+          switch (1) {
+            case 1:
+              var e;
+          }
+          for (var f of r) {
+            var g;
+          }
+          for (var h in s) {
+            var i;
+          }
+          for (var j, k; j < 0; j += 1) {
+            var l;
+          }
+          return x;
+        }
+      `,
+      ["b", "r", "s"],
+    ],
+    [
+      "var variables hoist of destructuring",
+      `
+        function test(a) {
+          const t = b + c + d + e + f + g + h + i + j + k + l;
+          var {
+            c,
+            z: {
+              y: d
+            },
+            x: [ e ]
+          } = a;
+          var [f, [g], { w: h }] = a;
+          var { i, j } = { v: r };
+          var [ k, l ] = s;
+          return t;
+        }
+      `,
+      ["b", "r", "s"],
+    ],
+    [
+      "destructuring expressions",
+      `
+        function test(a) {
+          const t = b + c + d + e + f + g + h;
+          var {
+            c,
+            z: {
+              y: d
+            },
+            x: [ e ]
+          } = a;
+          var [f, [g], { w: h }] = a;
+          ({ i, j } = { v: r });
+          [ k, l ] = s;
+          return t;
+        }
+      `,
+      ["b", "r", "i", "j", "s", "k", "l"],
+    ],
+    [
+      "lexical variables in arrow functions",
+      `
+        function test(a) {
+          const t = (b) => {
+            let c;
+            return c + d;
+          };
+          return t;
+        }
+      `,
+      ["d"],
+    ],
+    [
+      "lexical variables in arrow functions",
+      `
+        function test(a) {
+          const t = (b) => {
+            let c;
+            return c + d;
+          };
+          return t + c;
+        }
+      `,
+      ["d", "c"],
+    ],
+    [
+      "var variables in arrow functions",
+      `
+        function test(a) {
+          const t = (b) => {
+            const r = c + d;
+            var c;
+            return r;
+          };
+          return t;
+        }
+      `,
+      ["d"],
+    ],
+    [
+      "var variables in arrow functions",
+      `
+        function test(a) {
+          const t = (b) => {
+            const r = c + d;
+            var c;
+            return r;
+          };
+          return t + c;
+        }
+      `,
+      ["d", "c"],
+    ],
+    [
+      "function expressions",
+      `
+        function test(a) {
+          const t = function b() {
+            return b + c;
+          };
+          return t;
+        }
+      `,
+      ["c"],
+    ],
+    [
+      "function expressions",
+      `
+        function test(a) {
+          const t = function b() {
+            return c;
+          };
+          return t + b;
+        }
+      `,
+      ["c", "b"],
+    ],
+    [
+      "function expressions with var variables",
+      `
+        function test(a) {
+          const t = function b() {
+            var d;
+            return b + c;
+          };
+          return t + b + d;
+        }
+      `,
+      ["c", "b", "d"],
+    ],
+  ])("%s", (desc, source, result) => {
+    expect(Array.from(prefeast(source).attemptToVisitGlobals)).toEqual(result);
   });
 
   it.each<[string, string[]]>([
