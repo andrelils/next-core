@@ -4,7 +4,7 @@ import {
   CookVisitorState,
   ScopeVariableKind
 } from "./interfaces";
-import { CookScope, FLAG_BLOCK, FLAG_FUNCTION, FLAG_GLOBAL, PrecookScope } from "./Scope";
+import { CookScope, CookScopeRef, FLAG_BLOCK, FLAG_FUNCTION, FLAG_GLOBAL, PrecookScope } from "./Scope";
 
 export function walkFactory<T>(
   visitor: Record<string, VisitorFn<T>>,
@@ -39,35 +39,52 @@ export function spawnCookState(
 ): CookVisitorState {
   return {
     source: parentState.source,
-    // baseScopeStack: parentState.baseScopeStack,
     scopeMapByNode: parentState.scopeMapByNode,
     scopeStack: parentState.scopeStack,
-    // hoistOnly: parentState.hoistOnly,
     returns: parentState.returns,
     ...extendsState
   };
 }
 
-export function addVariableToPrecookScopeStack(name: string, kind: ScopeVariableKind, scopeStack: PrecookScope[]): void {
+export function addVariableToScopeStack(name: string, kind: ScopeVariableKind, scopeStack: PrecookScope[], hasInit?: boolean): void {
   switch (kind) {
     case "param": {
       const scope = scopeStack[scopeStack.length - 1];
       if (process.env.NODE_ENV !== "production" && !(scope.flags & FLAG_FUNCTION)) {
         throw new Error(`The top scope stack for a param should always be function, but received: ${scope.flags}`);
       }
-      scope.var.add(name);
+      scope.lexical.add(name);
       break;
     }
     case "let":
-    case "const":
+    case "const": {
+      const scope = findScopeByFlags(scopeStack, FLAG_GLOBAL | FLAG_FUNCTION | FLAG_BLOCK);
+      scope[kind === "let" ? "lexical" : "const"].add(name);
+      break;
+    }
     case "functions": {
       const scope = findScopeByFlags(scopeStack, FLAG_GLOBAL | FLAG_FUNCTION | FLAG_BLOCK);
-      scope.lexical.add(name);
+      if (scope.var.has(name) && !scope.varHasInit.has(name)) {
+        scope.var.delete(name);
+      }
+      if (!scope.var.has(name)) {
+        scope.lexical.delete(name);
+        getScopeRefOfFunctionDeclaration(scope).add(name);
+      }
       break;
     }
     case "var": {
       const scope = findScopeByFlags(scopeStack, FLAG_GLOBAL | FLAG_FUNCTION);
-      scope.lexical.add(name);
+      if (!hasInit && scope.functions.has(name)) {
+        break;
+      }
+      for (const type of ["lexical", "const", "functions"] as const) {
+        scope[type].delete(name);
+      }
+      scope.var.add(name);
+      if (hasInit) {
+        scope.varHasInit.add(name);
+      }
       break;
     }
   }
@@ -81,4 +98,10 @@ export function findScopeByFlags(scopeStack: PrecookScope[] | CookScope[], flags
       return scopeStack[i];
     }
   }
+}
+
+export function getScopeRefOfFunctionDeclaration(scope: PrecookScope ): Set<string>;
+export function getScopeRefOfFunctionDeclaration(scope: CookScope ): Map<string, CookScopeRef>;
+export function getScopeRefOfFunctionDeclaration(scope: PrecookScope | CookScope): Set<string> | Map<string, CookScopeRef> {
+  return scope[scope.flags & FLAG_GLOBAL ? "const" : "functions"];
 }

@@ -16,8 +16,8 @@ import {
 } from "@babel/types";
 import { PrecookVisitorState, VisitorFn } from "./interfaces";
 import { PrecookVisitor } from "./PrecookVisitor";
-import { FLAG_BLOCK, FLAG_FUNCTION, PrecookScope } from "./Scope";
-import { addVariableToPrecookScopeStack, spawnPrecookState } from "./utils";
+import { FLAG_BLOCK, FLAG_FUNCTION, FLAG_GLOBAL, PrecookScope } from "./Scope";
+import { addVariableToScopeStack, spawnPrecookState } from "./utils";
 
 export const PrefeastVisitor = Object.freeze<
   Record<string, VisitorFn<PrecookVisitorState>>
@@ -29,9 +29,8 @@ export const PrefeastVisitor = Object.freeze<
     }
 
     const newScope = new PrecookScope(FLAG_FUNCTION);
-    const newScopeStack = state.scopeStack.concat();
     const bodyState = spawnPrecookState(state, {
-      scopeStack: newScopeStack,
+      scopeStack: state.scopeStack.concat(newScope),
       isFunctionBody: true,
     });
     state.scopeMapByNode.set(node, newScope);
@@ -146,23 +145,21 @@ export const PrefeastVisitor = Object.freeze<
     }
   },
   FunctionDeclaration(node: FunctionDeclaration, state, callback) {
-    if (state.hoistOnly) {
-      addVariableToPrecookScopeStack(
+    if (state.hoistOnly || (state.scopeStack[state.scopeStack.length - 1].flags & FLAG_GLOBAL)) {
+      addVariableToScopeStack(
         node.id.name,
         "functions",
         state.scopeStack,
       );
-      return;
+
+      if (state.hoistOnly) {
+        return;
+      }
     }
 
-    // Todo
-    state.scopeStack[state.scopeStack.length - 1].functions.add(node.id.name);
-
-
     const newScope = new PrecookScope(FLAG_FUNCTION);
-    const newScopeStack = state.scopeStack.concat(newScope);
     const bodyState: PrecookVisitorState = spawnPrecookState(state, {
-      scopeStack: newScopeStack,
+      scopeStack: state.scopeStack.concat(newScope),
       isFunctionBody: true,
     });
     state.scopeMapByNode.set(node, newScope);
@@ -194,11 +191,11 @@ export const PrefeastVisitor = Object.freeze<
 
     const newScope = new PrecookScope(FLAG_FUNCTION);
     if (node.id) {
-      newScope.functions.add(node.id.name);
+      // A function expression is considered as const.
+      newScope.const.add(node.id.name);
     }
-    const newScopeStack = state.scopeStack.concat(newScope);
     const bodyState: PrecookVisitorState = spawnPrecookState(state, {
-      scopeStack: newScopeStack,
+      scopeStack: state.scopeStack.concat(newScope),
       isFunctionBody: true,
     });
     state.scopeMapByNode.set(node, newScope);
@@ -263,11 +260,14 @@ export const PrefeastVisitor = Object.freeze<
     // `var`s are collected only in hoist stage.
     // While others are collected only in non-hoist stage.
     if (Number(!state.hoistOnly) ^ Number(node.kind === "var")) {
-      const declarationState = spawnPrecookState(state, {
-        collectVariableNamesAsKind: node.kind,
-      });
+      // const declarationState = spawnPrecookState(state, {
+      //   collectVariableNamesAsKind: node.kind,
+      // });
       for (const declaration of node.declarations) {
-        callback(declaration.id, declarationState);
+        callback(declaration.id, spawnPrecookState(state, {
+          collectVariableNamesAsKind: node.kind,
+          hasInit: !!declaration.init
+        }));
       }
     }
 

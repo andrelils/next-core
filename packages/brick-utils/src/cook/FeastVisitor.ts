@@ -1,8 +1,8 @@
-import { AssignmentExpression, BlockStatement, BreakStatement, ExpressionStatement, FunctionDeclaration, IfStatement, ReturnStatement, SwitchCase, SwitchStatement, VariableDeclaration } from "@babel/types";
+import { AssignmentExpression, BlockStatement, BreakStatement, ExpressionStatement, FunctionDeclaration, FunctionExpression, IfStatement, ReturnStatement, SwitchCase, SwitchStatement, VariableDeclaration } from "@babel/types";
 import { CookVisitorState, VisitorFn } from "./interfaces";
 import { CookVisitor } from "./CookVisitor";
-import { spawnCookState } from "./utils";
-import { CookScopeStackFactory } from "./Scope";
+import { getScopeRefOfFunctionDeclaration, spawnCookState } from "./utils";
+import { CookScopeStackFactory, FLAG_GLOBAL } from "./Scope";
 
 export const FeastVisitor = Object.freeze<
   Record<string, VisitorFn<CookVisitorState>>
@@ -26,7 +26,6 @@ export const FeastVisitor = Object.freeze<
     const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
     const bodyState = spawnCookState(state, {
       scopeStack,
-      returns: state.returns,
       switches: state.switches,
     })
     for (const statement of node.body) {
@@ -55,8 +54,6 @@ export const FeastVisitor = Object.freeze<
       );
     }
 
-    // const cookedParamNames: string[] = [];
-
     state.cooked = function (...args: unknown[]) {
       const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
       const bodyState: CookVisitorState = spawnCookState(state, {
@@ -66,23 +63,6 @@ export const FeastVisitor = Object.freeze<
           returned: false,
         },
       });
-      // const currentScope: CookScope = new Map();
-      // const bodyState: CookVisitorState = {
-      //   currentScope,
-      //   closures: getScopes(state),
-      //   source: state.source,
-      //   isFunctionBody: true,
-      //   returns: {
-      //     returned: false,
-      //   },
-      // };
-
-      // For function parameters, define the current scope first.
-      /* for (const paramName of cookedParamNames) {
-        currentScope.set(paramName, {
-          initialized: false,
-        });
-      } */
 
       node.params.forEach((param, index) => {
         const variableInitValue =
@@ -103,33 +83,66 @@ export const FeastVisitor = Object.freeze<
       return bodyState.returns.cooked;
     };
 
-    /* state.currentScope.set(
-      node.id.name, {
-        initialized: true,
-        cooked: state.cooked,
-      }
-    );
+    const topScope = state.scopeStack[state.scopeStack.length - 1];
+    const ref = getScopeRefOfFunctionDeclaration(topScope).get(node.id.name);
+    // The scope ref will be undefined if the scope name is already been taken by `var`.
+    if (ref) {
+      ref.cooked = state.cooked;
+      ref.initialized = true;
+    }
+  },
+  FunctionExpression(node: FunctionExpression, state, callback) {
+    if (node.async || node.generator) {
+      throw new SyntaxError(
+        `${node.async ? "Async" : "Generator"} function is not allowed, but received: \`${state.source.substring(
+          node.start,
+          node.end
+        )}\``
+      );
+    }
 
-    const paramNameState: CookVisitorState<string> = spawnCookState(state, {
-      collectVariableNamesAsKind: cookedParamNames,
-    });
-    for (const param of node.params) {
-      callback(param, paramNameState);
-    } */
+    state.cooked = function (...args: unknown[]) {
+      const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
+
+      const topScope = scopeStack[scopeStack.length - 1];
+      const ref = topScope.const.get(node.id.name);
+      ref.cooked = state.cooked;
+      ref.initialized = true;
+
+      const bodyState: CookVisitorState = spawnCookState(state, {
+        scopeStack,
+        isFunctionBody: true,
+        returns: {
+          returned: false,
+        },
+      });
+
+      node.params.forEach((param, index) => {
+        const variableInitValue =
+          param.type === "RestElement" ? args.slice(index) : args[index];
+
+        const paramState = spawnCookState(bodyState, {
+          assignment: {
+            initializeOnly: true,
+            rightCooked: variableInitValue,
+          }
+        });
+
+        callback(param, paramState);
+      });
+
+      callback(node.body, bodyState);
+
+      return bodyState.returns.cooked;
+    };
   },
   IfStatement(node: IfStatement, state, callback) {
     const testState = spawnCookState(state);
     callback(node.test, testState);
     if (testState.cooked) {
-      const consequentState = spawnCookState(state, {
-        returns: state.returns
-      });
-      callback(node.consequent, consequentState);
+      callback(node.consequent, spawnCookState(state));
     } else if (node.alternate) {
-      const alternateState = spawnCookState(state, {
-        returns: state.returns
-      });
-      callback(node.alternate, alternateState);
+      callback(node.alternate, spawnCookState(state));
     }
   },
   ReturnStatement(node: ReturnStatement, state, callback) {
@@ -166,14 +179,12 @@ export const FeastVisitor = Object.freeze<
     const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
     switchState = spawnCookState(state, {
       scopeStack,
-      returns: state.returns,
       switches: {
         discriminantCooked: discriminantState.cooked,
         tested: false,
         terminated: false,
       },
     });
-
     for (const switchCase of node.cases) {
       callback(switchCase, switchState);
       if (switchState.switches.terminated) {
@@ -182,20 +193,6 @@ export const FeastVisitor = Object.freeze<
     }
   },
   VariableDeclaration(node: VariableDeclaration, state, callback) {
-    /* // Todo(steve): collect scope variables (and functions) across the current scope.
-    const declarationNames: string[] = [];
-    const declarationNameState = spawnCookState(state, {
-      collectVariableNamesAsKind: declarationNames,
-    });
-    for (const declaration of node.declarations) {
-      callback(declaration.id, declarationNameState);
-    }
-    for (const name of declarationNames) {
-      state.currentScope.set(name, {
-        initialized: false,
-        const: node.kind === "const",
-      });
-    } */
     for (const declaration of node.declarations) {
       let initCooked;
       if (declaration.init) {
@@ -207,6 +204,9 @@ export const FeastVisitor = Object.freeze<
         assignment: {
           initializeOnly: true,
           rightCooked: initCooked,
+          // kind: node.kind,
+          // hasInit: !!declaration.init,
+          isVarWithoutInit: node.kind === "var" && !declaration.init,
         }
       });
       callback(declaration.id, idState);

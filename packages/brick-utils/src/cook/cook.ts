@@ -3,7 +3,7 @@ import { walkFactory } from "./utils";
 import { CookVisitor } from "./CookVisitor";
 import { CookVisitorState, PrecookResult } from "./interfaces";
 import { supply } from "./supply";
-import { CookScope, FLAG_GLOBAL } from "./Scope";
+import { CookScopeFactory } from "./Scope";
 
 export function cook(
   precooked: PrecookResult,
@@ -13,8 +13,8 @@ export function cook(
     source: precooked.source,
     scopeMapByNode: precooked.scopeMapByNode,
     scopeStack: [
-      new CookScope(FLAG_GLOBAL),
       supply(precooked.attemptToVisitGlobals, globalVariables),
+      CookScopeFactory(precooked.globalScope),
     ],
   };
   walkFactory(CookVisitor, (node: Node) => {

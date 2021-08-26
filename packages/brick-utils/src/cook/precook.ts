@@ -9,10 +9,9 @@ export function precook(
   source: string,
   options?: PrecookOptions
 ): PrecookResult {
+  const globalScope = new PrecookScope(FLAG_GLOBAL);
   const state: PrecookVisitorState = {
-    scopeStack: [
-      new PrecookScope(FLAG_GLOBAL)
-    ],
+    scopeStack: [globalScope],
     attemptToVisitGlobals: new Set(),
     scopeMapByNode: new WeakMap(),
   };
@@ -41,5 +40,6 @@ export function precook(
     expression,
     attemptToVisitGlobals: state.attemptToVisitGlobals,
     scopeMapByNode: state.scopeMapByNode,
+    globalScope,
   };
 }

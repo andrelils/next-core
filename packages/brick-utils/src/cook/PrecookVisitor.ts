@@ -26,7 +26,7 @@ import {
   ChainExpression,
 } from "./interfaces";
 import { FLAG_FUNCTION, PrecookScope } from "./Scope";
-import { addVariableToPrecookScopeStack, spawnPrecookState/* , getScopes */ } from "./utils";
+import { addVariableToScopeStack, spawnPrecookState/* , getScopes */ } from "./utils";
 
 export const PrecookVisitor = Object.freeze<
   Record<string, VisitorFn<PrecookVisitorState>>
@@ -98,10 +98,11 @@ export const PrecookVisitor = Object.freeze<
   },
   Identifier(node: Identifier, state) {
     if (state.collectVariableNamesAsKind) {
-      addVariableToPrecookScopeStack(
+      addVariableToScopeStack(
         node.name,
         state.collectVariableNamesAsKind,
-        state.scopeStack
+        state.scopeStack,
+        state.hasInit
       );
       return;
     }

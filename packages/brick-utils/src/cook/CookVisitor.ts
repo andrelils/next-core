@@ -315,12 +315,15 @@ export const CookVisitor = Object.freeze<
   Identifier(node: Identifier, state: CookVisitorState) {
     if (state.assignment?.initializeOnly) {
       for (let i = state.scopeStack.length - 1; i >= 0; i--) {
-        const ref = state.scopeStack[i].get(node.name);
-        if (ref) {
-          ref.cooked = state.assignment.rightCooked;
-          ref.initialized = true;
+        if (state.scopeStack[i].assign(node.name, state.assignment)) {
           return;
         }
+        // const ref = state.scopeStack[i].get(node.name, state.assignment.isVarWithoutInit);
+        // if (ref) {
+        //   ref.cooked = state.assignment.rightCooked;
+        //   ref.initialized = true;
+        //   return;
+        // }
       }
       throw new ReferenceError(`Assignment left-hand side "${node.name}" is not found`);
     }
@@ -359,29 +362,6 @@ export const CookVisitor = Object.freeze<
         return;
       }
     }
-
-    /* const scopes = getScopes(state);
-    for (const scope of scopes) {
-      if (scope.has(node.name)) {
-        const ref = scope.get(node.name);
-        if (!ref.initialized) {
-          throw new ReferenceError(
-            `Cannot access '${node.name}' before initialization`
-          );
-        }
-        if (state.assignment) {
-          if (ref.const) {
-            throw new TypeError(
-              `Assignment to constant variable`
-            );
-          }
-          performAssignment(state.assignment.operator, ref, "cooked", state.assignment.rightCooked);
-        } else {
-          state.cooked = ref.cooked;
-        }
-        return;
-      }
-    } */
 
     throw new ReferenceError(`${node.name} is not defined`);
   },

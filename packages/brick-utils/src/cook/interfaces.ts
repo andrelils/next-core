@@ -10,14 +10,13 @@ export interface PrecookOptions {
   visitors?: Record<string, VisitorFn<PrecookVisitorState>>;
 }
 
-// export type PrecookScope = Set<string>;
-
 export interface PrecookVisitorState {
   scopeStack: PrecookScope[];
   attemptToVisitGlobals: Set<string>;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
   identifierAsLiteralString?: boolean;
   collectVariableNamesAsKind?: ScopeVariableKind;
+  hasInit?: boolean;
   isFunctionBody?: boolean;
   hoistOnly?: boolean;
 }
@@ -29,22 +28,23 @@ export interface PrecookResult {
   expression: Expression;
   attemptToVisitGlobals: Set<string>;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
+  globalScope: PrecookScope;
 }
 
 export interface CookVisitorState<T = any> {
   source: string;
-  // baseScopeStack: CookScope[];
   scopeMapByNode: WeakMap<Node, PrecookScope>;
   scopeStack?: CookScope[];
   identifierAsLiteralString?: boolean;
   spreadAsProperties?: boolean;
-  // collectVariableNamesAsKind?: ScopeVariableKind;
   isFunctionBody?: boolean;
-  // hoistOnly?: boolean;
   assignment?: {
     operator?: string;
     initializeOnly?: boolean;
     rightCooked?: unknown;
+    // kind?: VariableDeclaration["kind"];
+    // hasInit?: boolean;
+    isVarWithoutInit?: boolean;
   };
   chainRef?: {
     skipped?: boolean;
@@ -83,4 +83,5 @@ export interface PrefeastResult {
   function: FunctionDeclaration;
   attemptToVisitGlobals: Set<string>;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
+  globalScope: PrecookScope;
 }

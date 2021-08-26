@@ -22,9 +22,10 @@ export function prefeast(
     throw new SyntaxError("Invalid function declaration");
   }
   const func = body[0] as FunctionDeclaration;
+  const globalScope = new PrecookScope(FLAG_GLOBAL);
   const state: PrecookVisitorState = {
     scopeStack: [
-      new PrecookScope(FLAG_GLOBAL)
+      globalScope
     ],
     attemptToVisitGlobals: new Set(),
     scopeMapByNode: new WeakMap(),
@@ -48,5 +49,6 @@ export function prefeast(
     function: func,
     attemptToVisitGlobals: state.attemptToVisitGlobals,
     scopeMapByNode: state.scopeMapByNode,
+    globalScope,
   };
 }
