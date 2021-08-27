@@ -3,6 +3,7 @@ import {
   AssignmentExpression,
   BlockStatement,
   CatchClause,
+  DoWhileStatement,
   ExpressionStatement,
   ForInStatement,
   ForOfStatement,
@@ -17,6 +18,7 @@ import {
   TryStatement,
   UpdateExpression,
   VariableDeclaration,
+  WhileStatement,
 } from "@babel/types";
 import { PrecookVisitorState, VisitorFn } from "./interfaces";
 import { PrecookVisitor } from "./PrecookVisitor";
@@ -220,5 +222,13 @@ export const PrefeastVisitor = Object.freeze<
         callback(declaration.init, state);
       }
     }
+  },
+  WhileStatement(node: WhileStatement, state, callback) {
+    callback(node.test, state);
+    callback(node.body, state);
+  },
+  DoWhileStatement(node: DoWhileStatement, state, callback) {
+    callback(node.body, state);
+    callback(node.test, state);
   },
 });

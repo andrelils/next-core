@@ -5,6 +5,7 @@ import {
   BreakStatement,
   CatchClause,
   ContinueStatement,
+  DoWhileStatement,
   ExpressionStatement,
   ForInStatement,
   ForOfStatement,
@@ -19,6 +20,7 @@ import {
   TryStatement,
   UpdateExpression,
   VariableDeclaration,
+  WhileStatement,
 } from "@babel/types";
 import { CookVisitorState, VisitorCallback, VisitorFn } from "./interfaces";
 import { CookVisitor } from "./CookVisitor";
@@ -255,26 +257,17 @@ export const FeastVisitor = Object.freeze<
     const blockState = spawnCookStateOfBlock(node, state, {
       controlFlow: {},
     });
-
-    const init = (): void => {
-      if (node.init) {
-        callback(node.init, spawnCookState(blockState));
-      }
-    };
-    const test = (): boolean => {
-      if (node.test) {
-        const testState = spawnCookState(blockState);
-        callback(node.test, testState);
-        return testState.cooked;
-      }
-      return true;
-    };
-    const update = (): void => {
-      if (node.update) {
-        callback(node.update, spawnCookState(blockState));
-      }
-    };
-    for (init(); test(); update()) {
+    if (node.init) {
+      callback(node.init, spawnCookState(blockState));
+    }
+    for (
+      let testState: CookVisitorState;
+      node.test
+        ? (callback(node.test, (testState = spawnCookState(blockState))),
+          testState.cooked)
+        : true;
+      node.update && callback(node.update, spawnCookState(blockState))
+    ) {
       callback(node.body, spawnCookState(blockState));
       blockState.controlFlow.continued = false;
       if (isTerminated(blockState)) {
@@ -406,5 +399,37 @@ export const FeastVisitor = Object.freeze<
         callback(declaration.id, idState);
       }
     }
+  },
+  WhileStatement(node: WhileStatement, state, callback) {
+    let testState: CookVisitorState;
+    const blockState = spawnCookState(state, {
+      controlFlow: {},
+    });
+    while (
+      (callback(node.test, (testState = spawnCookState(state))),
+      testState.cooked)
+    ) {
+      callback(node.body, blockState);
+      blockState.controlFlow.continued = false;
+      if (isTerminated(blockState)) {
+        break;
+      }
+    }
+  },
+  DoWhileStatement(node: DoWhileStatement, state, callback) {
+    let testState: CookVisitorState;
+    const blockState = spawnCookState(state, {
+      controlFlow: {},
+    });
+    do {
+      callback(node.body, blockState);
+      blockState.controlFlow.continued = false;
+      if (isTerminated(blockState)) {
+        break;
+      }
+    } while (
+      (callback(node.test, (testState = spawnCookState(state))),
+      testState.cooked)
+    );
   },
 });

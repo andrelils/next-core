@@ -1150,6 +1150,189 @@ describe("feast", () => {
       },
     ],
     [
+      "while ...",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            while (total <= 2) {
+              total += 1;
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 3,
+          },
+        ],
+      },
+    ],
+    [
+      "while ... false",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            while (false) {
+              total += 1;
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 0,
+          },
+        ],
+      },
+    ],
+    [
+      "while ... and break",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            while (true) {
+              total += 1;
+              if (total >= 2) {
+                break;
+              }
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 2,
+          },
+        ],
+      },
+    ],
+    [
+      "while ... and continue",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            while (total < 2) {
+              if (total >= 2) {
+                continue;
+              }
+              total += 1;
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 2,
+          },
+        ],
+      },
+    ],
+    [
+      "do ... while",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            do {
+              total += 1;
+            } while (total <= 2);
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 3,
+          },
+        ],
+      },
+    ],
+    [
+      "do ... while false",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            do {
+              total += 1;
+            } while (false);
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 1,
+          },
+        ],
+      },
+    ],
+    [
+      "do ... while and break",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            do {
+              total += 1;
+              if (total >= 2) {
+                break;
+              }
+            } while (true);
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 2,
+          },
+        ],
+      },
+    ],
+    [
+      "do ... while and continue",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            do {
+              if (total >= 2) {
+                continue;
+              }
+              total += 1;
+            } while (total < 2);
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 2,
+          },
+        ],
+      },
+    ],
+    [
+      "",
+      {
+        source: `
+          function test() {
+
+          }
+        `,
+        cases: [],
+      },
+    ],
+    [
       "try ... catch ... finally",
       {
         source: `
