@@ -20,13 +20,12 @@ import {
   TemplateLiteral,
   UnaryExpression,
 } from "@babel/types";
-import {
-  VisitorFn,
-  PrecookVisitorState,
-  ChainExpression,
-} from "./interfaces";
+import { VisitorFn, PrecookVisitorState, ChainExpression } from "./interfaces";
 import { FLAG_FUNCTION, PrecookScope } from "./Scope";
-import { addVariableToScopeStack, spawnPrecookState/* , getScopes */ } from "./utils";
+import {
+  addVariableToScopeStack,
+  spawnPrecookState /* , getScopes */,
+} from "./utils";
 
 export const PrecookVisitor = Object.freeze<
   Record<string, VisitorFn<PrecookVisitorState>>
@@ -127,7 +126,7 @@ export const PrecookVisitor = Object.freeze<
     callback(node.right, state);
   },
   MemberExpression(node: MemberExpression, state, callback) {
-    if (state.hoistOnly) {
+    if (state.hoisting) {
       return;
     }
     callback(node.object, state);

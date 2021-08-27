@@ -53,7 +53,9 @@ export const CookVisitor = Object.freeze<
     let index = 0;
     for (const element of node.elements) {
       if (element !== null) {
-        const elementState = spawnCookState(state) as CookVisitorState<unknown[]>;
+        const elementState = spawnCookState(state) as CookVisitorState<
+          unknown[]
+        >;
         callback(element, elementState);
         if (element.type === "SpreadElement") {
           for (let i = 0; i < elementState.cooked.length; i++) {
@@ -67,14 +69,15 @@ export const CookVisitor = Object.freeze<
       } else {
         index += 1;
       }
-    };
+    }
     state.cooked = cookedElements;
   },
   ArrayPattern(node: ArrayPattern, state, callback) {
     if (state.assignment) {
       if (!isIterable(state.assignment.rightCooked)) {
         throw new TypeError(
-          `${typeof state.assignment.rightCooked} is not iterable: \`${state.source.substring(
+          `${typeof state.assignment
+            .rightCooked} is not iterable: \`${state.source.substring(
             node.start,
             node.end
           )}\``
@@ -89,8 +92,8 @@ export const CookVisitor = Object.freeze<
               ...state.assignment,
               rightCooked:
                 element.type === "RestElement"
-                ? spreadArgs.slice(index)
-                : spreadArgs[index],
+                  ? spreadArgs.slice(index)
+                  : spreadArgs[index],
             },
           })
         );
@@ -123,7 +126,10 @@ export const CookVisitor = Object.freeze<
     }
 
     state.cooked = function (...args: unknown[]) {
-      const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
+      const scopeStack = CookScopeStackFactory(
+        state.scopeStack,
+        state.scopeMapByNode.get(node)
+      );
       const bodyState: CookVisitorState = spawnCookState(state, {
         scopeStack,
       });
@@ -136,7 +142,7 @@ export const CookVisitor = Object.freeze<
           assignment: {
             initializeOnly: true,
             rightCooked: variableInitValue,
-          }
+          },
         });
 
         callback(param, paramState);
@@ -315,27 +321,18 @@ export const CookVisitor = Object.freeze<
   Identifier(node: Identifier, state: CookVisitorState) {
     if (state.assignment?.initializeOnly) {
       for (let i = state.scopeStack.length - 1; i >= 0; i--) {
-        if (state.scopeStack[i].assign(node.name, state.assignment)) {
+        const ref = state.scopeStack[i].get(node.name);
+        if (ref) {
+          ref.cooked = state.assignment.rightCooked;
+          ref.initialized = true;
           return;
         }
-        // const ref = state.scopeStack[i].get(node.name, state.assignment.isVarWithoutInit);
-        // if (ref) {
-        //   ref.cooked = state.assignment.rightCooked;
-        //   ref.initialized = true;
-        //   return;
-        // }
       }
-      throw new ReferenceError(`Assignment left-hand side "${node.name}" is not found`);
-    }
-    /* if (state.collectVariableNamesAsKind) {
-      // state.collectVariableNamesAsKind.push(node.name);
-      addVariableToCookScopeStack(
-        node.name,
-        state.collectVariableNamesAsKind,
-        state.scopeStack
+      throw new ReferenceError(
+        `Assignment left-hand side "${node.name}" is not found`
       );
-      return;
-    } */
+    }
+
     if (state.identifierAsLiteralString) {
       state.cooked = node.name;
       return;
@@ -345,22 +342,34 @@ export const CookVisitor = Object.freeze<
       const ref = state.scopeStack[i].get(node.name);
       if (ref) {
         if (!ref.initialized) {
+          if (state.checkTypeOf) {
+            state.cooked = undefined;
+            return;
+          }
           throw new ReferenceError(
             `Cannot access '${node.name}' before initialization`
           );
         }
         if (state.assignment) {
           if (ref.const) {
-            throw new TypeError(
-              `Assignment to constant variable`
-            );
+            throw new TypeError(`Assignment to constant variable`);
           }
-          performAssignment(state.assignment.operator, ref as unknown as Record<string, unknown>, "cooked", state.assignment.rightCooked);
+          performAssignment(
+            state.assignment.operator,
+            ref as unknown as Record<string, unknown>,
+            "cooked",
+            state.assignment.rightCooked
+          );
         } else {
           state.cooked = ref.cooked;
         }
         return;
       }
+    }
+
+    if (state.checkTypeOf) {
+      state.cooked = undefined;
+      return;
     }
 
     throw new ReferenceError(`${node.name} is not defined`);
@@ -446,12 +455,19 @@ export const CookVisitor = Object.freeze<
 
     if (objectCookedIsNil) {
       throw new TypeError(
-        `Cannot ${state.assignment ? "set" : "read"} property '${propertyCooked}' of ${objectCooked}`
+        `Cannot ${
+          state.assignment ? "set" : "read"
+        } property '${propertyCooked}' of ${objectCooked}`
       );
     }
 
     if (state.assignment) {
-      performAssignment(state.assignment.operator, objectCooked, propertyCooked, state.assignment.rightCooked);
+      performAssignment(
+        state.assignment.operator,
+        objectCooked,
+        propertyCooked,
+        state.assignment.rightCooked
+      );
     } else {
       state.cooked = objectCooked[propertyCooked];
 
@@ -499,12 +515,11 @@ export const CookVisitor = Object.freeze<
             spawnCookState(state, {
               assignment: {
                 ...state.assignment,
-                rightCooked:
-                  Object.fromEntries(
-                    Object.entries(rightCooked).filter(
-                      (entry) => !usedProps.has(entry[0])
-                    )
-                  ),
+                rightCooked: Object.fromEntries(
+                  Object.entries(rightCooked).filter(
+                    (entry) => !usedProps.has(entry[0])
+                  )
+                ),
               },
             })
           );
@@ -522,7 +537,8 @@ export const CookVisitor = Object.freeze<
             spawnCookState(state, {
               assignment: {
                 ...state.assignment,
-                rightCooked: rightCooked[keyState.cooked as keyof typeof rightCooked],
+                rightCooked:
+                  rightCooked[keyState.cooked as keyof typeof rightCooked],
               },
             })
           );
@@ -624,7 +640,9 @@ export const CookVisitor = Object.freeze<
     state.cooked = chunk.join("");
   },
   UnaryExpression(node: UnaryExpression, state, callback) {
-    const argumentState = spawnCookState(state);
+    const argumentState = spawnCookState(state, {
+      checkTypeOf: node.operator === "typeof",
+    });
     callback(node.argument, argumentState);
 
     const argumentCooked = argumentState.cooked;
@@ -760,7 +778,12 @@ function sanitize(cooked: any): void {
   }
 }
 
-function performAssignment(operator: string, object: Record<string, unknown>, property: unknown, value: unknown): void {
+function performAssignment(
+  operator: string,
+  object: Record<string, unknown>,
+  property: unknown,
+  value: unknown
+): void {
   switch (operator) {
     case "=":
       object[property as keyof typeof object] = value;
@@ -782,9 +805,5 @@ function performAssignment(operator: string, object: Record<string, unknown>, pr
       return;
   }
 
-  throw new SyntaxError(
-    `Unsupported assignment operator \`${
-      operator
-    }\``
-  );
+  throw new SyntaxError(`Unsupported assignment operator \`${operator}\``);
 }

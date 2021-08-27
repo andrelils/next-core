@@ -1,13 +1,110 @@
-import { AssignmentExpression, BlockStatement, BreakStatement, ExpressionStatement, FunctionDeclaration, FunctionExpression, IfStatement, ReturnStatement, SwitchCase, SwitchStatement, VariableDeclaration } from "@babel/types";
+import {
+  ArrowFunctionExpression,
+  AssignmentExpression,
+  BlockStatement,
+  BreakStatement,
+  ExpressionStatement,
+  FunctionDeclaration,
+  FunctionExpression,
+  IfStatement,
+  ReturnStatement,
+  SwitchCase,
+  SwitchStatement,
+  VariableDeclaration,
+} from "@babel/types";
 import { CookVisitorState, VisitorFn } from "./interfaces";
 import { CookVisitor } from "./CookVisitor";
-import { getScopeRefOfFunctionDeclaration, spawnCookState } from "./utils";
-import { CookScopeStackFactory, FLAG_GLOBAL } from "./Scope";
+import { spawnCookState } from "./utils";
+import { CookScopeStackFactory } from "./Scope";
+
+const FunctionVisitor: VisitorFn<CookVisitorState> = (
+  node: FunctionDeclaration | FunctionExpression | ArrowFunctionExpression,
+  state,
+  callback
+) => {
+  if (node.async || node.generator) {
+    throw new SyntaxError(
+      `${
+        node.async ? "Async" : "Generator"
+      } function is not allowed, but received: \`${state.source.substring(
+        node.start,
+        node.end
+      )}\``
+    );
+  }
+
+  if (
+    node.type === "FunctionDeclaration" &&
+    !(state.hoisting || state.isRoot)
+  ) {
+    return;
+  }
+
+  const fn = function (...args: unknown[]): unknown {
+    const precookScope = state.scopeMapByNode.get(node);
+    const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
+
+    if (node.type === "FunctionExpression" && node.id) {
+      const topScope = scopeStack[scopeStack.length - 1];
+      const ref = topScope.variables.get(node.id.name);
+      ref.cooked = state.cooked;
+      ref.initialized = true;
+    }
+
+    const bodyState: CookVisitorState = spawnCookState(state, {
+      scopeStack,
+      isFunctionBody: true,
+      returns: {
+        returned: false,
+      },
+    });
+
+    node.params.forEach((param, index) => {
+      const variableInitValue =
+        param.type === "RestElement" ? args.slice(index) : args[index];
+
+      const paramState = spawnCookState(bodyState, {
+        assignment: {
+          initializeOnly: true,
+          rightCooked: variableInitValue,
+        },
+      });
+
+      callback(param, paramState);
+    });
+
+    for (const hoistedFn of precookScope.hoistedFunctions) {
+      callback(
+        hoistedFn,
+        spawnCookState(bodyState, {
+          isFunctionBody: true,
+          hoisting: true,
+        })
+      );
+    }
+
+    callback(node.body, bodyState);
+
+    return bodyState.returns.cooked;
+  };
+
+  if (state.isRoot || node.type !== "FunctionDeclaration") {
+    state.cooked = fn;
+  }
+
+  if (node.type === "FunctionDeclaration") {
+    const topScope = state.scopeStack[state.scopeStack.length - 1];
+    const ref = topScope.get(node.id.name);
+    ref.cooked = fn;
+    ref.initialized = true;
+  }
+};
 
 export const FeastVisitor = Object.freeze<
   Record<string, VisitorFn<CookVisitorState>>
 >({
   ...CookVisitor,
+  ArrowFunctionExpression: FunctionVisitor,
   AssignmentExpression(node: AssignmentExpression, state, callback) {
     const rightState = spawnCookState(state);
     callback(node.right, rightState);
@@ -16,18 +113,35 @@ export const FeastVisitor = Object.freeze<
       assignment: {
         operator: node.operator,
         rightCooked: rightState.cooked,
-      }
+      },
     });
     callback(node.left, leftState);
 
     state.cooked = rightState.cooked;
   },
   BlockStatement(node: BlockStatement, state, callback) {
-    const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
+    const precookScope = state.scopeMapByNode.get(node);
+    const scopeStack = CookScopeStackFactory(
+      state.scopeStack,
+      state.scopeMapByNode.get(node)
+    );
+
     const bodyState = spawnCookState(state, {
       scopeStack,
       switches: state.switches,
-    })
+    });
+
+    if (precookScope) {
+      for (const hoistedFn of precookScope.hoistedFunctions) {
+        callback(
+          hoistedFn,
+          spawnCookState(bodyState, {
+            hoisting: true,
+          })
+        );
+      }
+    }
+
     for (const statement of node.body) {
       callback(statement, bodyState);
       if (bodyState.returns.returned) {
@@ -44,98 +158,8 @@ export const FeastVisitor = Object.freeze<
   ExpressionStatement(node: ExpressionStatement, state, callback) {
     callback(node.expression, spawnCookState(state));
   },
-  FunctionDeclaration(node: FunctionDeclaration, state, callback) {
-    if (node.async || node.generator) {
-      throw new SyntaxError(
-        `${node.async ? "Async" : "Generator"} function is not allowed, but received: \`${state.source.substring(
-          node.start,
-          node.end
-        )}\``
-      );
-    }
-
-    state.cooked = function (...args: unknown[]) {
-      const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
-      const bodyState: CookVisitorState = spawnCookState(state, {
-        scopeStack,
-        isFunctionBody: true,
-        returns: {
-          returned: false,
-        },
-      });
-
-      node.params.forEach((param, index) => {
-        const variableInitValue =
-          param.type === "RestElement" ? args.slice(index) : args[index];
-
-        const paramState = spawnCookState(bodyState, {
-          assignment: {
-            initializeOnly: true,
-            rightCooked: variableInitValue,
-          }
-        });
-
-        callback(param, paramState);
-      });
-
-      callback(node.body, bodyState);
-
-      return bodyState.returns.cooked;
-    };
-
-    const topScope = state.scopeStack[state.scopeStack.length - 1];
-    const ref = getScopeRefOfFunctionDeclaration(topScope).get(node.id.name);
-    // The scope ref will be undefined if the scope name is already been taken by `var`.
-    if (ref) {
-      ref.cooked = state.cooked;
-      ref.initialized = true;
-    }
-  },
-  FunctionExpression(node: FunctionExpression, state, callback) {
-    if (node.async || node.generator) {
-      throw new SyntaxError(
-        `${node.async ? "Async" : "Generator"} function is not allowed, but received: \`${state.source.substring(
-          node.start,
-          node.end
-        )}\``
-      );
-    }
-
-    state.cooked = function (...args: unknown[]) {
-      const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
-
-      const topScope = scopeStack[scopeStack.length - 1];
-      const ref = topScope.const.get(node.id.name);
-      ref.cooked = state.cooked;
-      ref.initialized = true;
-
-      const bodyState: CookVisitorState = spawnCookState(state, {
-        scopeStack,
-        isFunctionBody: true,
-        returns: {
-          returned: false,
-        },
-      });
-
-      node.params.forEach((param, index) => {
-        const variableInitValue =
-          param.type === "RestElement" ? args.slice(index) : args[index];
-
-        const paramState = spawnCookState(bodyState, {
-          assignment: {
-            initializeOnly: true,
-            rightCooked: variableInitValue,
-          }
-        });
-
-        callback(param, paramState);
-      });
-
-      callback(node.body, bodyState);
-
-      return bodyState.returns.cooked;
-    };
-  },
+  FunctionDeclaration: FunctionVisitor,
+  FunctionExpression: FunctionVisitor,
   IfStatement(node: IfStatement, state, callback) {
     const testState = spawnCookState(state);
     callback(node.test, testState);
@@ -160,7 +184,8 @@ export const FeastVisitor = Object.freeze<
     if (!state.switches.tested && node.test) {
       const testState = spawnCookState(state);
       callback(node.test, testState);
-      state.switches.tested = testState.cooked === state.switches.discriminantCooked;
+      state.switches.tested =
+        testState.cooked === state.switches.discriminantCooked;
     }
     if (state.switches.tested || !node.test) {
       for (const statement of node.consequent) {
@@ -173,11 +198,12 @@ export const FeastVisitor = Object.freeze<
     }
   },
   SwitchStatement(node: SwitchStatement, state, callback) {
-    let switchState = state;
     const discriminantState = spawnCookState(state);
     callback(node.discriminant, discriminantState);
-    const scopeStack = CookScopeStackFactory(state.scopeStack, state.scopeMapByNode.get(node));
-    switchState = spawnCookState(state, {
+
+    const precookScope = state.scopeMapByNode.get(node);
+    const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
+    const bodyState = spawnCookState(state, {
       scopeStack,
       switches: {
         discriminantCooked: discriminantState.cooked,
@@ -185,9 +211,19 @@ export const FeastVisitor = Object.freeze<
         terminated: false,
       },
     });
+
+    for (const hoistedFn of precookScope.hoistedFunctions) {
+      callback(
+        hoistedFn,
+        spawnCookState(bodyState, {
+          hoisting: true,
+        })
+      );
+    }
+
     for (const switchCase of node.cases) {
-      callback(switchCase, switchState);
-      if (switchState.switches.terminated) {
+      callback(switchCase, bodyState);
+      if (bodyState.switches.terminated) {
         break;
       }
     }
@@ -200,16 +236,15 @@ export const FeastVisitor = Object.freeze<
         callback(declaration.init, initState);
         initCooked = initState.cooked;
       }
-      const idState = spawnCookState(state, {
-        assignment: {
-          initializeOnly: true,
-          rightCooked: initCooked,
-          // kind: node.kind,
-          // hasInit: !!declaration.init,
-          isVarWithoutInit: node.kind === "var" && !declaration.init,
-        }
-      });
-      callback(declaration.id, idState);
+      if (node.kind !== "var" || declaration.init) {
+        const idState = spawnCookState(state, {
+          assignment: {
+            initializeOnly: true,
+            rightCooked: initCooked,
+          },
+        });
+        callback(declaration.id, idState);
+      }
     }
   },
 });

@@ -24,11 +24,10 @@ export function prefeast(
   const func = body[0] as FunctionDeclaration;
   const globalScope = new PrecookScope(FLAG_GLOBAL);
   const state: PrecookVisitorState = {
-    scopeStack: [
-      globalScope
-    ],
+    scopeStack: [globalScope],
     attemptToVisitGlobals: new Set(),
     scopeMapByNode: new WeakMap(),
+    isRoot: true,
   };
   walkFactory(
     options?.visitors

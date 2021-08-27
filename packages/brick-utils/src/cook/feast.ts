@@ -16,6 +16,7 @@ export function feast(
       supply(prefeasted.attemptToVisitGlobals, globalVariables),
       CookScopeFactory(prefeasted.globalScope),
     ],
+    isRoot: true,
   };
   walkFactory(FeastVisitor, (node: Node) => {
     throw new SyntaxError(

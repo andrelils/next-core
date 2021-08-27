@@ -27,424 +27,764 @@ describe("feast", () => {
     },
   });
 
-  it.each<[desc: string, source: string, args: unknown[], result: unknown]>([
+  it.each<
+    [string, { source: string; cases: { args: unknown[]; result: unknown }[] }]
+  >([
     [
       "lexical variables in block statement",
-      `
-        function test(a) {
-          {
-            let a;
-            a = 9;
+      {
+        source: `
+          function test(a) {
+            {
+              let a;
+              a = 9;
+            }
+            return a;
           }
-          return a;
-        }
-      `,
-      [1],
-      1,
+        `,
+        cases: [
+          {
+            args: [1],
+            result: 1,
+          },
+        ],
+      },
     ],
     [
       "lexical variables in block statement of if",
-      `
-        function test(a) {
-          if (true) {
-            let a;
-            a = 9;
+      {
+        source: `
+          function test(a) {
+            if (true) {
+              let a;
+              a = 9;
+            }
+            return a;
           }
-          return a;
-        }
-      `,
-      [1],
-      1,
+        `,
+        cases: [
+          {
+            args: [1],
+            result: 1,
+          },
+        ],
+      },
     ],
     [
       "lexical variables in block statement of switch",
-      `
-        function test(a) {
-          switch (true) {
-            case true:
-              let a;
-              a = 9;
+      {
+        source: `
+          function test(a) {
+            switch (true) {
+              case true:
+                let a;
+                a = 9;
+            }
+            return a;
           }
-          return a;
-        }
-      `,
-      [1],
-      1,
+        `,
+        cases: [
+          {
+            args: [1],
+            result: 1,
+          },
+        ],
+      },
     ],
     [
       "update param variables in block statement",
-      `
-        function test(a) {
-          {
-            a = 9;
+      {
+        source: `
+          function test(a) {
+            {
+              a = 9;
+            }
+            return a;
           }
-          return a;
-        }
-      `,
-      [1],
-      9,
+        `,
+        cases: [
+          {
+            args: [1],
+            result: 9,
+          },
+        ],
+      },
     ],
     [
       "update lexical variables in block statement",
-      `
-        function test(a) {
-          let b = a;
-          {
-            b = 9;
+      {
+        source: `
+          function test(a) {
+            let b = a;
+            {
+              b = 9;
+            }
+            return b;
           }
-          return b;
-        }
-      `,
-      [1],
-      9,
+        `,
+        cases: [
+          {
+            args: [1],
+            result: 9,
+          },
+        ],
+      },
     ],
-  ])("%s", (desc, source, args, result) => {
-    const func = feast(prefeast(source), getGlobalVariables()) as (...args: unknown[]) => unknown;
-    const equivalentFunc = new Function(`"use strict"; return ${source.trim()}`)();
-    expect(equivalentFunc(...args)).toEqual(result);
-    expect(func(...args)).toEqual(result);
-  });
-
-  it.each<[desc: string, source: string, pairs: [args: unknown[], result: unknown][]]>([
     [
       "switch statements: general",
-      `
-        function test(a) {
-          let b;
-          switch(a) {
-            case 1:
-              b = "A";
-              break;
-            case 2:
-              b = "B";
-              break;
-            case 9:
-              b = "X";
-              return "Z";
-            default:
-              b = "C";
+      {
+        source: `
+          function test(a) {
+            let b;
+            switch(a) {
+              case 1:
+                b = 'A';
+                break;
+              case 2:
+                b = 'B';
+                break;
+              case 9:
+                b = 'X';
+                return 'Z';
+              default:
+                b = 'C';
+            }
+            return b;
           }
-          return b;
-        }
-      `,
-      [
-        [
-          [1],
-          "A",
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "A",
+          },
+          {
+            args: [2],
+            result: "B",
+          },
+          {
+            args: [3],
+            result: "C",
+          },
+          {
+            args: [9],
+            result: "Z",
+          },
         ],
-        [
-          [2],
-          "B",
-        ],
-        [
-          [3],
-          "C",
-        ],
-        [
-          [9],
-          "Z",
-        ],
-      ]
+      },
     ],
     [
       "switch statements: missing a break",
-      `
-        function test(a) {
-          let b = "";
-          switch(a) {
-            case 1:
-              b += "A";
-            case 2:
-              b += "B";
-              break;
-            default:
-              b = "C";
+      {
+        source: `
+          function test(a) {
+            let b = '';
+            switch(a) {
+              case 1:
+                b += 'A';
+              case 2:
+                b += 'B';
+                break;
+              default:
+                b = 'C';
+            }
+            return b;
           }
-          return b;
-        }
-      `,
-      [
-        [
-          [1],
-          "AB",
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "AB",
+          },
+          {
+            args: [2],
+            result: "B",
+          },
+          {
+            args: [3],
+            result: "C",
+          },
         ],
-        [
-          [2],
-          "B",
-        ],
-        [
-          [3],
-          "C",
-        ],
-      ]
+      },
     ],
     [
       "switch statements: missing a break before default",
-      `
-        function test(a) {
-          let b = "";
-          switch(a) {
-            case 1:
-              b += "A";
-              break;
-            case 2:
-              b += "B";
-            default:
-              b += "C";
+      {
+        source: `
+          function test(a) {
+            let b = '';
+            switch(a) {
+              case 1:
+                b += 'A';
+                break;
+              case 2:
+                b += 'B';
+              default:
+                b += 'C';
+            }
+            return b;
           }
-          return b;
-        }
-      `,
-      [
-        [
-          [1],
-          "A",
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "A",
+          },
+          {
+            args: [2],
+            result: "BC",
+          },
+          {
+            args: [3],
+            result: "C",
+          },
         ],
-        [
-          [2],
-          "BC",
-        ],
-        [
-          [3],
-          "C",
-        ],
-      ]
+      },
     ],
     [
       "if statements",
-      `
-        function test(a) {
-          if (a === 1) {
-            return "A";
-          } else if (a === 2) {
-            return "B";
-          } else {
-            return "C";
+      {
+        source: `
+          function test(a) {
+            if (a === 1) {
+              return 'A';
+            } else if (a === 2) {
+              return 'B';
+            } else {
+              return 'C';
+            }
           }
-        }
-      `,
-      [
-        [
-          [1],
-          "A",
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "A",
+          },
+          {
+            args: [2],
+            result: "B",
+          },
+          {
+            args: [3],
+            result: "C",
+          },
         ],
-        [
-          [2],
-          "B",
-        ],
-        [
-          [3],
-          "C",
-        ],
-      ]
+      },
     ],
     [
       "object destructuring",
-      `
-        function test(a, { r: d, ...e } = {}, ...f) {
-          const { x: b = 9, ...c } = a;
-          return {
-            b,
-            c,
-            d,
-            e,
-            f
-          };
-        }
-      `,
-      [
-        [
-          [{ x: 1, y: 2, z: 3 }, { r: 4, s: 5, t: 6}, 7, 8],
+      {
+        source: `
+          function test(a, { r: d, ...e } = {}, ...f) {
+            const { x: b = 9, ...c } = a;
+            return {
+              b,
+              c,
+              d,
+              e,
+              f
+            };
+          }
+        `,
+        cases: [
           {
-            b: 1,
-            c: { y: 2, z: 3 },
-            d: 4,
-            e: { s: 5, t: 6 },
-            f: [7, 8],
+            args: [
+              {
+                x: 1,
+                y: 2,
+                z: 3,
+              },
+              {
+                r: 4,
+                s: 5,
+                t: 6,
+              },
+              7,
+              8,
+            ],
+            result: {
+              b: 1,
+              c: {
+                y: 2,
+                z: 3,
+              },
+              d: 4,
+              e: {
+                s: 5,
+                t: 6,
+              },
+              f: [7, 8],
+            },
+          },
+          {
+            args: [
+              {
+                y: 2,
+                z: 3,
+              },
+            ],
+            result: {
+              b: 9,
+              c: {
+                y: 2,
+                z: 3,
+              },
+              d: undefined,
+              e: {},
+              f: [],
+            },
           },
         ],
-        [
-          [{ y: 2, z: 3 }],
-          {
-            b: 9,
-            c: { y: 2, z: 3 },
-            d: undefined,
-            e: {},
-            f: [],
-          },
-        ],
-      ]
+      },
     ],
     [
       "array destructuring",
-      `
-        function test(a, [d, ...e] = []) {
-          const [ b = 9, ...c ] = a;
-          return [ 0, ...c, b, d, e];
-        }
-      `,
-      [
-        [
-          [[1, 2, 3], [4, 5, 6]],
-          [0, 2, 3, 1, 4, [5, 6]],
+      {
+        source: `
+          function test(a, [d, ...e] = []) {
+            const [ b = 9, ...c ] = a;
+            return [ 0, ...c, b, d, e];
+          }
+        `,
+        cases: [
+          {
+            args: [
+              [1, 2, 3],
+              [4, 5, 6],
+            ],
+            result: [0, 2, 3, 1, 4, [5, 6]],
+          },
+          {
+            args: [[undefined, 2, 3]],
+            result: [0, 2, 3, 9, undefined, []],
+          },
         ],
-        [
-          [[undefined, 2, 3]],
-          [0, 2, 3, 9, undefined, []],
-        ],
-      ]
+      },
     ],
     [
       "recursive",
-      `
-        function test(a) {
-          return a + (a > 1 ? test(a - 1) : 0);
-        }
-      `,
-      [
-        [
-          [2],
-          3
+      {
+        source: `
+          function test(a) {
+            return a + (a > 1 ? test(a - 1) : 0);
+          }
+        `,
+        cases: [
+          {
+            args: [2],
+            result: 3,
+          },
+          {
+            args: [3],
+            result: 6,
+          },
         ],
-        [
-          [3],
-          6
-        ]
-      ]
+      },
     ],
     [
       "var variables overload param variables",
-      `
-        function test(a) {
-          var a = 2;
-          return a;
-        }
-      `,
-      [
-        [
-          [1],
-          2
+      {
+        source: `
+          function test(a) {
+            var a = 2;
+            return a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: 2,
+          },
         ],
-      ]
+      },
     ],
     [
       "functions overload params variables",
-      `
-        function test(a) {
-          function a() {}
-          return typeof a;
-        }
-      `,
-      [
-        [
-          [1],
-          "function"
-        ],
-      ]
-    ],
-    [
-      "functions hoist in block statements",
-      `
-        function test() {
-          if (false) {
+      {
+        source: `
+          function test(a) {
             function a() {}
+            return typeof a;
           }
-          return typeof a;
-        }
-      `,
-      [
-        [
-          [],
-          "undefined"
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "function",
+          },
         ],
-      ]
+      },
     ],
     [
       "var variables hoist in block statements",
-      `
-        function test() {
-          var b = typeof a;
-          if (false) {
-            var a;
+      {
+        source: `
+          function test() {
+            var b = typeof a;
+            if (false) {
+              var a;
+            }
+            return b;
           }
-          return b;
-        }
-      `,
-      [
-        [
-          [],
-          "undefined"
+        `,
+        cases: [
+          {
+            args: [],
+            result: "undefined",
+          },
         ],
-      ]
+      },
     ],
     [
       "functions after var variables initialized",
-      `
-        function test(a) {
-          var a = "A";
-          function a() {}
-          return typeof a;
-        }
-      `,
-      [
-        [
-          [1],
-          "string"
+      {
+        source: `
+          function test(a) {
+            var a = 'A';
+            function a() {}
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "string",
+          },
         ],
-      ]
+      },
     ],
     [
       "functions after var variables uninitialized",
-      `
-        function test(a) {
-          var a;
-          function a() {}
-          return typeof a;
-        }
-      `,
-      [
-        [
-          [1],
-          "function"
+      {
+        source: `
+          function test(a) {
+            var a;
+            function a() {}
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "function",
+          },
         ],
-      ]
+      },
     ],
     [
       "functions before var variables initialized",
-      `
-        function test(a) {
-          function a() {}
-          var a = "A";
-          return typeof a;
-        }
-      `,
-      [
-        [
-          [1],
-          "string"
+      {
+        source: `
+          function test(a) {
+            function a() {}
+            var a = 'A';
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "string",
+          },
         ],
-      ]
+      },
     ],
     [
       "functions before var variables uninitialized",
-      `
-        function test(a) {
-          function a() {}
-          var a;
-          return typeof a;
-        }
-      `,
-      [
-        [
-          [1],
-          "function"
+      {
+        source: `
+          function test(a) {
+            function a() {}
+            var a;
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "function",
+          },
         ],
-      ]
+      },
     ],
-  ])("%s", (desc, source, pairs) => {
-    const func = feast(prefeast(source), getGlobalVariables()) as (...args: unknown[]) => unknown;
-    for (const [args, result] of pairs) {
-      const equivalentFunc = new Function(`"use strict"; return ${source.trim()}`)();
+    [
+      "functions before false conditional var variables initialized",
+      {
+        source: `
+          function test(a) {
+            function a() {}
+            if (false) {
+              var a = 'A';
+            }
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "function",
+          },
+        ],
+      },
+    ],
+    [
+      "functions before true conditional var variables initialized",
+      {
+        source: `
+          function test(a) {
+            function a() {}
+            if (true) {
+              var a = 'A';
+            }
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "string",
+          },
+        ],
+      },
+    ],
+    [
+      "functions before blocked var variables initialized",
+      {
+        source: `
+          function test(a) {
+            function a() {}
+            {
+              var a = 'A';
+            }
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "string",
+          },
+        ],
+      },
+    ],
+    [
+      "conditional functions after var variables uninitialized",
+      {
+        source: `
+          function test(a) {
+            var a;
+            if (false) {
+              function a() {}
+            }
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "number",
+          },
+        ],
+      },
+    ],
+    [
+      "blocked functions after var variables uninitialized",
+      {
+        source: `
+          function test(a) {
+            var a;
+            {
+              function a() {}
+            }
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "number",
+          },
+        ],
+      },
+    ],
+    [
+      "blocked functions after var variables uninitialized with no params",
+      {
+        source: `
+          function test() {
+            var a;
+            {
+              function a() {}
+            }
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: "undefined",
+          },
+        ],
+      },
+    ],
+    [
+      "blocked functions",
+      {
+        source: `
+          function test(a) {
+            {
+              function a() {}
+            }
+            return typeof a;
+          }
+        `,
+        cases: [
+          {
+            args: [1],
+            result: "number",
+          },
+        ],
+      },
+    ],
+    [
+      "hoisted functions",
+      {
+        source: `
+          function test() {
+            const t = a();
+            function a() {
+              return 1;
+            }
+            return t;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 1,
+          },
+        ],
+      },
+    ],
+    [
+      "functions hoisting in block",
+      {
+        source: `
+          function test() {
+            const t = a();
+            let r;
+            if (true) {
+              r = a();
+              function a() {
+                return 2;
+              }
+            }
+            function a() {
+              return 1;
+            }
+            return t + r;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 3,
+          },
+        ],
+      },
+    ],
+    [
+      "functions hoisting in switch statement",
+      {
+        source: `
+          function test() {
+            const t = a();
+            let r;
+            switch (true) {
+              case true:
+                r = a();
+              case false:
+                function a() { return 2 }
+            }
+            function a() {
+              return 1;
+            }
+            return t + r;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 3,
+          },
+        ],
+      },
+    ],
+    [
+      "hoisted functions in function expressions",
+      {
+        source: `
+          function test() {
+            const f = function(){
+              const t = a();
+              let r;
+              if (true) {
+                r = a();
+                function a() {
+                  return 2;
+                }
+              }
+              function a() {
+                return 1;
+              }
+              return t + r;
+            };
+            return f();
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 3,
+          },
+        ],
+      },
+    ],
+    [
+      "hoisted functions in arrow functions",
+      {
+        source: `
+          function test() {
+            const f = () => {
+              const t = a();
+              let r;
+              if (true) {
+                r = a();
+                function a() {
+                  return 2;
+                }
+              }
+              function a() {
+                return 1;
+              }
+              return t + r;
+            };
+            return f();
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 3,
+          },
+        ],
+      },
+    ],
+  ])("%s", (desc, { source, cases }) => {
+    const func = feast(prefeast(source), getGlobalVariables()) as (
+      ...args: unknown[]
+    ) => unknown;
+    for (const { args, result } of cases) {
+      const equivalentFunc = new Function(`"use strict"; return (${source})`)();
       expect(equivalentFunc(...args)).toEqual(result);
       expect(func(...args)).toEqual(result);
     }
@@ -482,56 +822,13 @@ describe("feast", () => {
       [[]],
     ],
   ])("%s should throw", (desc, source, inputs) => {
-    const func = feast(prefeast(source), getGlobalVariables()) as (...args: unknown[]) => unknown;
+    const func = feast(prefeast(source), getGlobalVariables()) as (
+      ...args: unknown[]
+    ) => unknown;
     for (const args of inputs) {
-      const equivalentFunc = new Function(`"use strict"; return ${source.trim()}`)();
+      const equivalentFunc = new Function(`"use strict"; return (${source})`)();
       expect(() => equivalentFunc(...args)).toThrowError();
       expect(() => func(...args)).toThrowErrorMatchingSnapshot();
     }
-  });
-
-  it("should work", () => {
-    const myTestFunc = feast(
-      prefeast([
-        'function myTestFunc(greeting = typeof myTestFunc, exclamation, heyCount) {',
-        '  console.log("start");',
-        '  let z = "_";',
-        '  [z="y"] = heyCount.array;',
-        '  console.log(z);',
-        // '  let z = "y";',
-        '  heyCount[z] = 2;',
-        '  let { y: x = 0 } = heyCount;',
-        '  x += 1;',
-        '  switch(x) {',
-        '    case 2:',
-        '      console.log("Hey, ");',
-        '    case 1:',
-        '      console.log("Hey, ");',
-        '      return "terminated";',
-        '    case 3: {',
-        '      console.log("Hey*3, ");',
-        '      break;',
-        '    }',
-        '    default:',
-        '      console.log("Hey*N, ");',
-        '  }',
-        '  if (exclamation) {',
-        '    return `${greeting} ${DATA.name}!`;',
-        '  } else {',
-        '    return `${greeting} ${DATA.name}`;',
-        '  }',
-        '  console.log("never should be reached");',
-        '}'
-      ].join("\n")),
-      {
-        DATA: {
-          name: "world",
-        },
-        console: {
-          log: console.log,
-        }
-      }
-    ) as (...args: unknown[]) => unknown;
-    console.log(myTestFunc(null, false, {z: 100, array: []}));
   });
 });

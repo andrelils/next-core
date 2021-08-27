@@ -123,6 +123,8 @@ describe("cook", () => {
     ["+DATA.true", 1],
     ["-DATA.true", -1],
     ["typeof DATA.for", "string"],
+    ["typeof DATA.unknown", "undefined"],
+    ["typeof unknown", "undefined"],
     ["void DATA.for", undefined],
     ["DATA.number5 + 1", 6],
     ["DATA.number5 - 1", 4],
@@ -307,6 +309,7 @@ describe("cook", () => {
     "c`a${1}b`",
     // Reuse arrow functions.
     "(fn => fn(2,1)+fn())((a=b,b)=>a)",
+    "typeof unknown.any",
     // Todo(steve)
     // "_.wrap(_.method('constructor.assign',{a:1},{b:2}),(func,...a) => func(...a))({})"
   ])("cook(precook(%j), {...}) should throw", (input) => {

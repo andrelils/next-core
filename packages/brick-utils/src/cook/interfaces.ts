@@ -1,4 +1,9 @@
-import { Expression, FunctionDeclaration, Node, VariableDeclaration } from "@babel/types";
+import {
+  Expression,
+  FunctionDeclaration,
+  Node,
+  VariableDeclaration,
+} from "@babel/types";
 import { CookScope, PrecookScope } from "./Scope";
 
 export interface ChainExpression {
@@ -14,38 +19,40 @@ export interface PrecookVisitorState {
   scopeStack: PrecookScope[];
   attemptToVisitGlobals: Set<string>;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
+  isRoot?: boolean;
   identifierAsLiteralString?: boolean;
   collectVariableNamesAsKind?: ScopeVariableKind;
-  hasInit?: boolean;
   isFunctionBody?: boolean;
-  hoistOnly?: boolean;
+  hoisting?: boolean;
 }
 
-export type ScopeVariableKind = "param" | VariableDeclaration["kind"] | "functions";
+export type ScopeVariableKind =
+  | "param"
+  | VariableDeclaration["kind"]
+  | "functions";
 
-export interface PrecookResult {
+export interface BasePreResult {
   source: string;
-  expression: Expression;
   attemptToVisitGlobals: Set<string>;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
   globalScope: PrecookScope;
+}
+
+export interface PrecookResult extends BasePreResult {
+  expression: Expression;
 }
 
 export interface CookVisitorState<T = any> {
   source: string;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
   scopeStack?: CookScope[];
+  isRoot?: boolean;
   identifierAsLiteralString?: boolean;
   spreadAsProperties?: boolean;
   isFunctionBody?: boolean;
-  assignment?: {
-    operator?: string;
-    initializeOnly?: boolean;
-    rightCooked?: unknown;
-    // kind?: VariableDeclaration["kind"];
-    // hasInit?: boolean;
-    isVarWithoutInit?: boolean;
-  };
+  hoisting?: boolean;
+  checkTypeOf?: boolean;
+  assignment?: CookAssignmentData;
   chainRef?: {
     skipped?: boolean;
   };
@@ -66,6 +73,16 @@ export interface CookVisitorState<T = any> {
   cooked?: T;
 }
 
+export interface CookAssignmentData {
+  operator?: string;
+  initializeOnly?: boolean;
+  // initializeKind?: number;
+  rightCooked?: unknown;
+  // kind?: VariableDeclaration["kind"];
+  // hasInit?: boolean;
+  // isVarWithoutInit?: boolean;
+}
+
 export type PropertyCooked = string | number;
 export type PropertyEntryCooked = [PropertyCooked, any];
 export type ObjectCooked = Record<PropertyCooked, any>;
@@ -78,10 +95,6 @@ export type VisitorFn<T> = (
   callback: VisitorCallback<T>
 ) => void;
 
-export interface PrefeastResult {
-  source: string;
+export interface PrefeastResult extends BasePreResult {
   function: FunctionDeclaration;
-  attemptToVisitGlobals: Set<string>;
-  scopeMapByNode: WeakMap<Node, PrecookScope>;
-  globalScope: PrecookScope;
 }

@@ -83,3 +83,5 @@ exports[`cook cook(precook("new (a = function () {})()"), {...}) should throw 1`
 exports[`cook cook(precook("new Boolean()"), {...}) should throw 1`] = `"Unsupported constructor \`Boolean\`: \`new Boolean()\`"`;
 
 exports[`cook cook(precook("this.bad"), {...}) should throw 1`] = `"Unsupported node type \`ThisExpression\`: \`this\`"`;
+
+exports[`cook cook(precook("typeof unknown.any"), {...}) should throw 1`] = `"unknown is not defined"`;
