@@ -1056,6 +1056,32 @@ describe("feast", () => {
         ],
       },
     ],
+    [
+      "try ... catch ... finally",
+      {
+        source: `
+          function test() {
+            let a = 1, b, c;
+            try {
+              b = 'yep';
+              a();
+              b = 'nope';
+            } catch (e) {
+              a = e.toString();
+            } finally {
+              c = a + ':' + b;
+            }
+            return c;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: "TypeError: a is not a function:yep",
+          },
+        ],
+      },
+    ],
   ])("%s", (desc, { source, cases }) => {
     const func = feast(prefeast(source), getGlobalVariables()) as (
       ...args: unknown[]

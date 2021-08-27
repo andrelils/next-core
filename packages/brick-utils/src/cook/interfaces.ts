@@ -70,6 +70,9 @@ export interface CookVisitorState<T = any> {
     // Broken or returned.
     broken?: boolean;
   };
+  catches?: {
+    error: unknown;
+  };
   cooked?: T;
 }
 

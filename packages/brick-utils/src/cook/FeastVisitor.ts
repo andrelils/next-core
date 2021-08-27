@@ -3,6 +3,7 @@ import {
   AssignmentExpression,
   BlockStatement,
   BreakStatement,
+  CatchClause,
   ExpressionStatement,
   ForInStatement,
   ForOfStatement,
@@ -13,6 +14,7 @@ import {
   ReturnStatement,
   SwitchCase,
   SwitchStatement,
+  TryStatement,
   VariableDeclaration,
 } from "@babel/types";
 import { CookVisitorState, VisitorCallback, VisitorFn } from "./interfaces";
@@ -309,6 +311,44 @@ export const FeastVisitor = Object.freeze<
         break;
       }
     }
+  },
+  TryStatement(node: TryStatement, state, callback) {
+    try {
+      callback(node.block, spawnCookState(state));
+    } catch (error) {
+      if (node.handler) {
+        callback(
+          node.handler,
+          spawnCookState(state, {
+            catches: {
+              error,
+            },
+          })
+        );
+      } else {
+        throw error;
+      }
+    } finally {
+      if (node.finalizer) {
+        callback(node.finalizer, spawnCookState(state));
+      }
+    }
+  },
+  CatchClause(node: CatchClause, state, callback) {
+    const precookScope = state.scopeMapByNode.get(node);
+    const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
+    const blockState = spawnCookState(state, {
+      scopeStack,
+    });
+
+    const paramState = spawnCookState(blockState, {
+      assignment: {
+        initializeOnly: true,
+        rightCooked: state.catches.error,
+      },
+    });
+    callback(node.param, paramState);
+    callback(node.body, spawnCookState(blockState));
   },
   VariableDeclaration(node: VariableDeclaration, state, callback) {
     for (const declaration of node.declarations) {

@@ -2,6 +2,7 @@ import {
   ArrowFunctionExpression,
   AssignmentExpression,
   BlockStatement,
+  CatchClause,
   ExpressionStatement,
   ForInStatement,
   ForOfStatement,
@@ -12,6 +13,7 @@ import {
   ReturnStatement,
   SwitchCase,
   SwitchStatement,
+  TryStatement,
   VariableDeclaration,
 } from "@babel/types";
 import { PrecookVisitorState, VisitorFn } from "./interfaces";
@@ -141,6 +143,27 @@ export const PrefeastVisitor = Object.freeze<
   BreakStatement() {
     // Do nothing.
   },
+  CatchClause(node: CatchClause, state, callback) {
+    let newScope: PrecookScope;
+    if (state.hoisting) {
+      newScope = new PrecookScope(FLAG_BLOCK);
+      state.scopeMapByNode.set(node, newScope);
+    } else {
+      newScope = state.scopeMapByNode.get(node);
+    }
+    const blockState = spawnPrecookState(state, {
+      scopeStack: state.scopeStack.concat(newScope),
+    });
+    if (!state.hoisting) {
+      callback(
+        node.param,
+        spawnPrecookState(blockState, {
+          collectVariableNamesAsKind: "let",
+        })
+      );
+    }
+    callback(node.body, blockState);
+  },
   EmptyStatement() {
     // Do nothing.
   },
@@ -215,6 +238,15 @@ export const PrefeastVisitor = Object.freeze<
     }
     for (const switchCase of node.cases) {
       callback(switchCase, bodyState);
+    }
+  },
+  TryStatement(node: TryStatement, state, callback) {
+    callback(node.block, state);
+    if (node.handler) {
+      callback(node.handler, state);
+    }
+    if (node.finalizer) {
+      callback(node.finalizer, state);
     }
   },
   VariableDeclaration(node: VariableDeclaration, state, callback) {
