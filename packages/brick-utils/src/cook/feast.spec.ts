@@ -845,6 +845,29 @@ describe("feast", () => {
       },
     ],
     [
+      "for const ... of and continue",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            for (const i of [1, 2, 3]) {
+              if (i === 2) {
+                continue;
+              }
+              total += i;
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 4,
+          },
+        ],
+      },
+    ],
+    [
       "for let ... in",
       {
         source: `
@@ -908,6 +931,29 @@ describe("feast", () => {
       },
     ],
     [
+      "for const ... in and continue",
+      {
+        source: `
+          function test() {
+            let total = '';
+            for (const i in {a:1,b:2,c:3}) {
+              if (i === 'b') {
+                continue;
+              }
+              total += i;
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: "ac",
+          },
+        ],
+      },
+    ],
+    [
       "for let ...",
       {
         source: `
@@ -948,6 +994,53 @@ describe("feast", () => {
           {
             args: [],
             result: 1,
+          },
+        ],
+      },
+    ],
+    [
+      "for const ... and continue",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            const list = [1, 2, 3];
+            for (let i = 0; i < list.length; i += 1) {
+              if (i === 1) {
+                continue;
+              }
+              total += list[i];
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 4,
+          },
+        ],
+      },
+    ],
+    [
+      "for ... with no init nor test nor update",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            for (; ;) {
+              total += 1;
+              if (total >= 2) {
+                break;
+              }
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 2,
           },
         ],
       },
@@ -1082,6 +1175,80 @@ describe("feast", () => {
         ],
       },
     ],
+    [
+      "throw and catch",
+      {
+        source: `
+          function test() {
+            let a = 'yes';
+            try {
+              throw 'oops';
+            } catch (e) {
+              a = 'Error: ' + e;
+            }
+            return a;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: "Error: oops",
+          },
+        ],
+      },
+    ],
+    [
+      "assignment",
+      {
+        source: `
+          function test() {
+            let [a, b, c, d, e, f] = [10, 20, 30, 40, 50, 60];
+            const g = { h: 70 };
+            let r = a;
+            let s = (b += 1);
+            let t = (c -= 1);
+            let u = (d *= 2);
+            let v = (e /= 2);
+            let w = (f %= 7);
+            let x = (g.h += 2);
+            return [[a, b, c, d, e, f, g.h], [r, s, t, u, v, w, x]];
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: [
+              [10, 21, 29, 80, 25, 4, 72],
+              [10, 21, 29, 80, 25, 4, 72],
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      "update",
+      {
+        source: `
+          function test() {
+            let [a, b, c, d] = [10, 20, 30, 40];
+            let r = a++;
+            let s = ++b;
+            let t = c--;
+            let u = --d;
+            return [ [a, b, c, d], [r, s, t, u] ];
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: [
+              [11, 21, 29, 39],
+              [10, 21, 30, 39],
+            ],
+          },
+        ],
+      },
+    ],
   ])("%s", (desc, { source, cases }) => {
     const func = feast(prefeast(source), getGlobalVariables()) as (
       ...args: unknown[]
@@ -1093,7 +1260,7 @@ describe("feast", () => {
     }
   });
 
-  it.each<[desc: string, source: string, inputs: unknown[][]]>([
+  it.each<[desc: string, source: string]>([
     [
       "assign constants",
       `
@@ -1102,7 +1269,6 @@ describe("feast", () => {
           a = 2;
         }
       `,
-      [[]],
     ],
     [
       "assign global functions",
@@ -1111,7 +1277,6 @@ describe("feast", () => {
           test = 1;
         }
       `,
-      [[]],
     ],
     [
       "assign function expressions",
@@ -1122,10 +1287,9 @@ describe("feast", () => {
           })();
         }
       `,
-      [[]],
     ],
     [
-      "assign for const ... of",
+      "assign `for const ... of`",
       `
         function test(){
           for (const i of [1]) {
@@ -1133,10 +1297,9 @@ describe("feast", () => {
           }
         }
       `,
-      [[]],
     ],
     [
-      "assign for const ...",
+      "assign `for const ...`",
       `
         function test(){
           for (const i=0; i<2; i+=1) {
@@ -1144,16 +1307,39 @@ describe("feast", () => {
           }
         }
       `,
-      [[]],
     ],
-  ])("%s should throw", (desc, source, inputs) => {
-    const func = feast(prefeast(source), getGlobalVariables()) as (
-      ...args: unknown[]
-    ) => unknown;
-    for (const args of inputs) {
-      const equivalentFunc = new Function(`"use strict"; return (${source})`)();
-      expect(() => equivalentFunc(...args)).toThrowError();
-      expect(() => func(...args)).toThrowErrorMatchingSnapshot();
-    }
+  ])("%s should throw", (desc, source) => {
+    const equivalentFunc = new Function(`"use strict"; return (${source})`)();
+    expect(() => equivalentFunc()).toThrowError();
+    expect(() => {
+      const func = feast(prefeast(source), getGlobalVariables()) as (
+        ...args: unknown[]
+      ) => unknown;
+      func();
+    }).toThrowErrorMatchingSnapshot();
+  });
+
+  it.each<[desc: string, source: string]>([
+    [
+      "async functions",
+      `
+        async function test(){}
+      `,
+    ],
+    [
+      "generator functions",
+      `
+        function* test(){}
+      `,
+    ],
+  ])("%s should throw", (desc, source) => {
+    const equivalentFunc = new Function(`"use strict"; return (${source})`)();
+    expect(() => equivalentFunc()).not.toThrowError();
+    expect(() => {
+      const func = feast(prefeast(source), getGlobalVariables()) as (
+        ...args: unknown[]
+      ) => unknown;
+      func();
+    }).toThrowErrorMatchingSnapshot();
   });
 });

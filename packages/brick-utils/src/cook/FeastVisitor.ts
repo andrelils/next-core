@@ -4,6 +4,7 @@ import {
   BlockStatement,
   BreakStatement,
   CatchClause,
+  ContinueStatement,
   ExpressionStatement,
   ForInStatement,
   ForOfStatement,
@@ -14,13 +15,22 @@ import {
   ReturnStatement,
   SwitchCase,
   SwitchStatement,
+  ThrowStatement,
   TryStatement,
+  UpdateExpression,
   VariableDeclaration,
 } from "@babel/types";
 import { CookVisitorState, VisitorCallback, VisitorFn } from "./interfaces";
 import { CookVisitor } from "./CookVisitor";
-import { assertIterable, isTerminated, spawnCookState } from "./utils";
-import { CookScopeStackFactory } from "./Scope";
+import {
+  assertIterable,
+  isTerminated,
+  spawnCookState,
+  spawnCookStateOfBlock,
+  lowerLevelSpawnCookStateOfBlock,
+} from "./utils";
+
+// Todo:  while
 
 const ForOfStatementItemVisitor = (
   node: ForOfStatement | ForInStatement,
@@ -30,7 +40,7 @@ const ForOfStatementItemVisitor = (
 ): void => {
   const leftState = spawnCookState(blockState, {
     assignment: {
-      initializeOnly: true,
+      initializing: true,
       rightCooked: value,
     },
   });
@@ -44,10 +54,7 @@ const ForOfStatementVisitor: VisitorFn<CookVisitorState> = (
   state,
   callback
 ) => {
-  const precookScope = state.scopeMapByNode.get(node);
-  const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
-  const blockState = spawnCookState(state, {
-    scopeStack,
+  const blockState = spawnCookStateOfBlock(node, state, {
     controlFlow: {},
   });
 
@@ -58,6 +65,7 @@ const ForOfStatementVisitor: VisitorFn<CookVisitorState> = (
     assertIterable(rightState.cooked, state.source, node.start, node.end);
     for (const value of rightState.cooked) {
       ForOfStatementItemVisitor(node, blockState, callback, value);
+      blockState.controlFlow.continued = false;
       if (isTerminated(blockState)) {
         break;
       }
@@ -65,6 +73,7 @@ const ForOfStatementVisitor: VisitorFn<CookVisitorState> = (
   } else {
     for (const value in rightState.cooked) {
       ForOfStatementItemVisitor(node, blockState, callback, value);
+      blockState.controlFlow.continued = false;
       if (isTerminated(blockState)) {
         break;
       }
@@ -96,31 +105,31 @@ const FunctionVisitor: VisitorFn<CookVisitorState> = (
   }
 
   const fn = function (...args: unknown[]): unknown {
-    const precookScope = state.scopeMapByNode.get(node);
-    const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
+    const { precookScope, blockState } = lowerLevelSpawnCookStateOfBlock(
+      node,
+      state,
+      {
+        isFunctionBody: true,
+        returns: {
+          returned: false,
+        },
+      }
+    );
 
     if (node.type === "FunctionExpression" && node.id) {
-      const topScope = scopeStack[scopeStack.length - 1];
+      const topScope = blockState.scopeStack[blockState.scopeStack.length - 1];
       const ref = topScope.variables.get(node.id.name);
       ref.cooked = state.cooked;
       ref.initialized = true;
     }
 
-    const bodyState: CookVisitorState = spawnCookState(state, {
-      scopeStack,
-      isFunctionBody: true,
-      returns: {
-        returned: false,
-      },
-    });
-
     node.params.forEach((param, index) => {
       const variableInitValue =
         param.type === "RestElement" ? args.slice(index) : args[index];
 
-      const paramState = spawnCookState(bodyState, {
+      const paramState = spawnCookState(blockState, {
         assignment: {
-          initializeOnly: true,
+          initializing: true,
           rightCooked: variableInitValue,
         },
       });
@@ -131,16 +140,16 @@ const FunctionVisitor: VisitorFn<CookVisitorState> = (
     for (const hoistedFn of precookScope.hoistedFunctions) {
       callback(
         hoistedFn,
-        spawnCookState(bodyState, {
+        spawnCookState(blockState, {
           isFunctionBody: true,
           hoisting: true,
         })
       );
     }
 
-    callback(node.body, bodyState);
+    callback(node.body, blockState);
 
-    return bodyState.returns.cooked;
+    return blockState.returns.cooked;
   };
 
   if (state.isRoot || node.type !== "FunctionDeclaration") {
@@ -172,24 +181,19 @@ export const FeastVisitor = Object.freeze<
     });
     callback(node.left, leftState);
 
-    state.cooked = rightState.cooked;
+    state.cooked = leftState.cooked;
   },
   BlockStatement(node: BlockStatement, state, callback) {
-    const precookScope = state.scopeMapByNode.get(node);
-    const scopeStack = CookScopeStackFactory(
-      state.scopeStack,
-      state.scopeMapByNode.get(node)
+    const { precookScope, blockState } = lowerLevelSpawnCookStateOfBlock(
+      node,
+      state
     );
-
-    const bodyState = spawnCookState(state, {
-      scopeStack,
-    });
 
     if (precookScope) {
       for (const hoistedFn of precookScope.hoistedFunctions) {
         callback(
           hoistedFn,
-          spawnCookState(bodyState, {
+          spawnCookState(blockState, {
             hoisting: true,
           })
         );
@@ -197,14 +201,47 @@ export const FeastVisitor = Object.freeze<
     }
 
     for (const statement of node.body) {
-      callback(statement, bodyState);
-      if (isTerminated(bodyState)) {
+      callback(statement, blockState);
+      if (isTerminated(blockState)) {
         break;
       }
     }
   },
   BreakStatement(node: BreakStatement, state) {
+    // istanbul ignore if
+    if (node.label) {
+      throw new SyntaxError(
+        `Labeled break statement is not allowed, but received \`${state.source.substring(
+          node.start,
+          node.end
+        )}\``
+      );
+    }
     state.controlFlow.broken = true;
+  },
+  CatchClause(node: CatchClause, state, callback) {
+    const blockState = spawnCookStateOfBlock(node, state);
+
+    const paramState = spawnCookState(blockState, {
+      assignment: {
+        initializing: true,
+        rightCooked: state.caughtError,
+      },
+    });
+    callback(node.param, paramState);
+    callback(node.body, spawnCookState(blockState));
+  },
+  ContinueStatement(node: ContinueStatement, state) {
+    // istanbul ignore if
+    if (node.label) {
+      throw new SyntaxError(
+        `Labeled continue statement is not allowed, but received \`${state.source.substring(
+          node.start,
+          node.end
+        )}\``
+      );
+    }
+    state.controlFlow.continued = true;
   },
   EmptyStatement() {
     // Do nothing.
@@ -215,10 +252,7 @@ export const FeastVisitor = Object.freeze<
   ForInStatement: ForOfStatementVisitor,
   ForOfStatement: ForOfStatementVisitor,
   ForStatement(node: ForStatement, state, callback) {
-    const precookScope = state.scopeMapByNode.get(node);
-    const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
-    const blockState = spawnCookState(state, {
-      scopeStack,
+    const blockState = spawnCookStateOfBlock(node, state, {
       controlFlow: {},
     });
 
@@ -242,6 +276,7 @@ export const FeastVisitor = Object.freeze<
     };
     for (init(); test(); update()) {
       callback(node.body, spawnCookState(blockState));
+      blockState.controlFlow.continued = false;
       if (isTerminated(blockState)) {
         break;
       }
@@ -287,14 +322,15 @@ export const FeastVisitor = Object.freeze<
     const discriminantState = spawnCookState(state);
     callback(node.discriminant, discriminantState);
 
-    const precookScope = state.scopeMapByNode.get(node);
-    const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
-    const blockState = spawnCookState(state, {
-      scopeStack,
-      controlFlow: {
-        switchDiscriminantCooked: discriminantState.cooked,
-      },
-    });
+    const { precookScope, blockState } = lowerLevelSpawnCookStateOfBlock(
+      node,
+      state,
+      {
+        controlFlow: {
+          switchDiscriminantCooked: discriminantState.cooked,
+        },
+      }
+    );
 
     for (const hoistedFn of precookScope.hoistedFunctions) {
       callback(
@@ -312,6 +348,11 @@ export const FeastVisitor = Object.freeze<
       }
     }
   },
+  ThrowStatement(node: ThrowStatement, state, callback) {
+    const throwState = spawnCookState(state);
+    callback(node.argument, throwState);
+    throw throwState.cooked;
+  },
   TryStatement(node: TryStatement, state, callback) {
     try {
       callback(node.block, spawnCookState(state));
@@ -320,9 +361,7 @@ export const FeastVisitor = Object.freeze<
         callback(
           node.handler,
           spawnCookState(state, {
-            catches: {
-              error,
-            },
+            caughtError: error,
           })
         );
       } else {
@@ -334,21 +373,15 @@ export const FeastVisitor = Object.freeze<
       }
     }
   },
-  CatchClause(node: CatchClause, state, callback) {
-    const precookScope = state.scopeMapByNode.get(node);
-    const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
-    const blockState = spawnCookState(state, {
-      scopeStack,
-    });
-
-    const paramState = spawnCookState(blockState, {
-      assignment: {
-        initializeOnly: true,
-        rightCooked: state.catches.error,
+  UpdateExpression(node: UpdateExpression, state, callback) {
+    const argumentState = spawnCookState(state, {
+      update: {
+        operator: node.operator,
+        prefix: node.prefix,
       },
     });
-    callback(node.param, paramState);
-    callback(node.body, spawnCookState(blockState));
+    callback(node.argument, argumentState);
+    state.cooked = argumentState.cooked;
   },
   VariableDeclaration(node: VariableDeclaration, state, callback) {
     for (const declaration of node.declarations) {
@@ -366,7 +399,7 @@ export const FeastVisitor = Object.freeze<
       if (node.kind !== "var" || hasInit) {
         const idState = spawnCookState(state, {
           assignment: {
-            initializeOnly: true,
+            initializing: true,
             rightCooked: initCooked,
           },
         });

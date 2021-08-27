@@ -100,13 +100,12 @@ export const PrecookVisitor = Object.freeze<
       addVariableToScopeStack(
         node.name,
         state.collectVariableNamesAsKind,
-        state.scopeStack,
-        state.hasInit
+        state.scopeStack
       );
       return;
     }
 
-    if (state.identifierAsLiteralString) {
+    if (state.identifierAsLiteralString || state.hoisting) {
       return;
     }
 
@@ -126,9 +125,6 @@ export const PrecookVisitor = Object.freeze<
     callback(node.right, state);
   },
   MemberExpression(node: MemberExpression, state, callback) {
-    if (state.hoisting) {
-      return;
-    }
     callback(node.object, state);
     callback(
       node.property,

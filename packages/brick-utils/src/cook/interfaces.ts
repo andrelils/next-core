@@ -53,6 +53,7 @@ export interface CookVisitorState<T = any> {
   hoisting?: boolean;
   checkTypeOf?: boolean;
   assignment?: CookAssignmentData;
+  update?: CookUpdateData;
   chainRef?: {
     skipped?: boolean;
   };
@@ -69,17 +70,21 @@ export interface CookVisitorState<T = any> {
     switchTested?: boolean;
     // Broken or returned.
     broken?: boolean;
+    continued?: boolean;
   };
-  catches?: {
-    error: unknown;
-  };
+  caughtError?: unknown;
   cooked?: T;
 }
 
 export interface CookAssignmentData {
   operator?: string;
-  initializeOnly?: boolean;
+  initializing?: boolean;
   rightCooked?: unknown;
+}
+
+export interface CookUpdateData {
+  operator: "++" | "--";
+  prefix: boolean;
 }
 
 export type PropertyCooked = string | number;

@@ -72,7 +72,7 @@ describe("prefeast", () => {
           return x;
         }
       `,
-      ["b", "r", "s"],
+      ["b", "c", "d", "r", "s"],
     ],
     [
       "var variables hoist of destructuring",
@@ -218,13 +218,17 @@ describe("prefeast", () => {
             d = (w = (x = 3));
           u = v;
           s.e.f = t;
-          function f(g) { return r };
+          f();
+          function f(g) { return g + r }
+          ; // Empty statement
           const result = test(a+b+c+d+q+p);
           [ b = n ] = o;
-          for (const [h,l] of m) {
+          for (const h of m) {
             let k = h;
           }
-          return result + l + k;
+          i();
+          const i = function() { return l };
+          return result + k + j;
         }
       `,
       [
@@ -244,6 +248,7 @@ describe("prefeast", () => {
         "m",
         "l",
         "k",
+        "j",
       ],
     ],
   ])("prefeast(%j).attemptToVisitGlobals should be %j", (input, cooked) => {

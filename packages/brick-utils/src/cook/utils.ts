@@ -1,3 +1,4 @@
+import { Node } from "@babel/types";
 import {
   VisitorFn,
   PrecookVisitorState,
@@ -6,6 +7,7 @@ import {
 } from "./interfaces";
 import {
   CookScope,
+  CookScopeStackFactory,
   FLAG_BLOCK,
   FLAG_FUNCTION,
   FLAG_GLOBAL,
@@ -44,6 +46,21 @@ export function spawnPrecookState(
   };
 }
 
+export function spawnPrecookStateOfBlock(
+  node: Node,
+  state: PrecookVisitorState
+): PrecookVisitorState {
+  const newScope = state.hoisting
+    ? new PrecookScope(FLAG_BLOCK)
+    : state.scopeMapByNode.get(node);
+  if (state.hoisting) {
+    state.scopeMapByNode.set(node, newScope);
+  }
+  return spawnPrecookState(state, {
+    scopeStack: state.scopeStack.concat(newScope),
+  });
+}
+
 export function spawnCookState(
   parentState: CookVisitorState,
   extendsState?: Partial<CookVisitorState>
@@ -55,6 +72,30 @@ export function spawnCookState(
     returns: parentState.returns,
     controlFlow: parentState.controlFlow,
     ...extendsState,
+  };
+}
+
+export function spawnCookStateOfBlock(
+  node: Node,
+  state: CookVisitorState,
+  extendsState?: Partial<CookVisitorState>
+): CookVisitorState {
+  return lowerLevelSpawnCookStateOfBlock(node, state, extendsState).blockState;
+}
+
+export function lowerLevelSpawnCookStateOfBlock(
+  node: Node,
+  state: CookVisitorState,
+  extendsState?: Partial<CookVisitorState>
+): { blockState: CookVisitorState; precookScope: PrecookScope } {
+  const precookScope = state.scopeMapByNode.get(node);
+  const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
+  return {
+    blockState: spawnCookState(state, {
+      scopeStack,
+      ...extendsState,
+    }),
+    precookScope,
   };
 }
 
@@ -142,7 +183,11 @@ export function assertIterable(
 }
 
 export function isTerminated(state: CookVisitorState): boolean {
-  return state.returns.returned || state.controlFlow?.broken;
+  return (
+    state.returns.returned ||
+    state.controlFlow?.broken ||
+    state.controlFlow?.continued
+  );
 }
 
 function isIterable(cooked: unknown): boolean {

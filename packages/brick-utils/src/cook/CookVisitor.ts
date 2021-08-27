@@ -95,9 +95,8 @@ export const CookVisitor = Object.freeze<
           })
         );
       });
-      return;
     }
-    // Should nerve reach here.
+    // Should never reach here.
   },
   ArrowFunctionExpression(
     node: ArrowFunctionExpression,
@@ -137,7 +136,7 @@ export const CookVisitor = Object.freeze<
 
         const paramState = spawnCookState(bodyState, {
           assignment: {
-            initializeOnly: true,
+            initializing: true,
             rightCooked: variableInitValue,
           },
         });
@@ -166,14 +165,8 @@ export const CookVisitor = Object.freeze<
       } else {
         callback(node.left, state);
       }
-      return;
     }
-
-    /* // istanbul ignore else
-    if (state.collectVariableNamesAsKind) {
-      callback(node.left, state);
-    } */
-    // Should nerve reach here.
+    // Should never reach here.
   },
   BinaryExpression(node: BinaryExpression, state, callback) {
     const leftState = spawnCookState(state);
@@ -316,20 +309,6 @@ export const CookVisitor = Object.freeze<
     }
   },
   Identifier(node: Identifier, state: CookVisitorState) {
-    if (state.assignment?.initializeOnly) {
-      for (let i = state.scopeStack.length - 1; i >= 0; i--) {
-        const ref = state.scopeStack[i].get(node.name);
-        if (ref) {
-          ref.cooked = state.assignment.rightCooked;
-          ref.initialized = true;
-          return;
-        }
-      }
-      throw new ReferenceError(
-        `Assignment left-hand side "${node.name}" is not found`
-      );
-    }
-
     if (state.identifierAsLiteralString) {
       state.cooked = node.name;
       return;
@@ -337,31 +316,37 @@ export const CookVisitor = Object.freeze<
 
     for (let i = state.scopeStack.length - 1; i >= 0; i--) {
       const ref = state.scopeStack[i].get(node.name);
-      if (ref) {
-        if (!ref.initialized) {
-          if (state.checkTypeOf) {
-            state.cooked = undefined;
-            return;
-          }
+      if (!ref) {
+        continue;
+      }
+      if (state.assignment?.initializing) {
+        ref.cooked = state.assignment.rightCooked;
+        ref.initialized = true;
+      } else if (!ref.initialized) {
+        if (!state.checkTypeOf) {
           throw new ReferenceError(
             `Cannot access '${node.name}' before initialization`
           );
         }
-        if (state.assignment) {
-          if (ref.const) {
-            throw new TypeError(`Assignment to constant variable`);
-          }
-          performAssignment(
-            state.assignment.operator,
-            ref as unknown as Record<string, unknown>,
-            "cooked",
-            state.assignment.rightCooked
-          );
-        } else {
-          state.cooked = ref.cooked;
+        state.cooked = undefined;
+      } else if (state.assignment) {
+        if (ref.const) {
+          throw new TypeError(`Assignment to constant variable`);
         }
-        return;
+        state.cooked = performAssignment(
+          state.assignment.operator,
+          ref as unknown as Record<string, unknown>,
+          "cooked",
+          state.assignment.rightCooked
+        );
+      } else if (state.update) {
+        const prevValue = ref.cooked as number;
+        ref.cooked = prevValue + (state.update.operator === "--" ? -1 : 1);
+        state.cooked = state.update.prefix ? ref.cooked : prevValue;
+      } else {
+        state.cooked = ref.cooked;
       }
+      return;
     }
 
     if (state.checkTypeOf) {
@@ -459,7 +444,7 @@ export const CookVisitor = Object.freeze<
     }
 
     if (state.assignment) {
-      performAssignment(
+      state.cooked = performAssignment(
         state.assignment.operator,
         objectCooked,
         propertyCooked,
@@ -467,10 +452,10 @@ export const CookVisitor = Object.freeze<
       );
     } else {
       state.cooked = objectCooked[propertyCooked];
-
-      // Sanitize the accessed member.
-      sanitize(state.cooked);
     }
+
+    // Sanitize the accessed member.
+    sanitize(state.cooked);
   },
   ObjectExpression(
     node: ObjectExpression,
@@ -541,27 +526,14 @@ export const CookVisitor = Object.freeze<
           );
         }
       }
-      return;
     }
-
-    /* // istanbul ignore else
-    if (state.collectVariableNamesAsKind) {
-      for (const prop of node.properties) {
-        callback(prop, state);
-      }
-    } */
-    // Should nerve reach here.
+    // Should never reach here.
   },
   Property(
     node: ObjectProperty,
     state: CookVisitorState<PropertyEntryCooked>,
     callback
   ) {
-    /* if (state.collectVariableNamesAsKind) {
-      callback(node.value, state);
-      return;
-    } */
-
     const keyState: CookVisitorState<PropertyCooked> = spawnCookState(state, {
       identifierAsLiteralString: !node.computed,
     });
@@ -765,26 +737,25 @@ function performAssignment(
   object: Record<string, unknown>,
   property: unknown,
   value: unknown
-): void {
+): unknown {
   switch (operator) {
     case "=":
-      object[property as keyof typeof object] = value;
-      return;
+      return (object[property as keyof typeof object] = value);
     case "+=":
-      (object[property as keyof typeof object] as number) += value as number;
-      return;
+      return ((object[property as keyof typeof object] as number) +=
+        value as number);
     case "-=":
-      (object[property as keyof typeof object] as number) -= value as number;
-      return;
+      return ((object[property as keyof typeof object] as number) -=
+        value as number);
     case "*=":
-      (object[property as keyof typeof object] as number) *= value as number;
-      return;
+      return ((object[property as keyof typeof object] as number) *=
+        value as number);
     case "/=":
-      (object[property as keyof typeof object] as number) /= value as number;
-      return;
+      return ((object[property as keyof typeof object] as number) /=
+        value as number);
     case "%=":
-      (object[property as keyof typeof object] as number) %= value as number;
-      return;
+      return ((object[property as keyof typeof object] as number) %=
+        value as number);
   }
 
   throw new SyntaxError(`Unsupported assignment operator \`${operator}\``);
