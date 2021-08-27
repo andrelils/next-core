@@ -29,7 +29,7 @@ import {
   ChainExpression,
 } from "./interfaces";
 import { CookScopeStackFactory } from "./Scope";
-import { spawnCookState } from "./utils";
+import { assertIterable, spawnCookState } from "./utils";
 
 const SupportedConstructorSet = new Set([
   "Array",
@@ -74,15 +74,12 @@ export const CookVisitor = Object.freeze<
   },
   ArrayPattern(node: ArrayPattern, state, callback) {
     if (state.assignment) {
-      if (!isIterable(state.assignment.rightCooked)) {
-        throw new TypeError(
-          `${typeof state.assignment
-            .rightCooked} is not iterable: \`${state.source.substring(
-            node.start,
-            node.end
-          )}\``
-        );
-      }
+      assertIterable(
+        state.assignment.rightCooked,
+        state.source,
+        node.start,
+        node.end
+      );
       const [...spreadArgs] = state.assignment.rightCooked as unknown[];
       node.elements.forEach((element, index) => {
         callback(
@@ -590,13 +587,8 @@ export const CookVisitor = Object.freeze<
     const argumentState = spawnCookState(state);
     callback(node.argument, argumentState);
     const cooked = argumentState.cooked;
-    if (!state.spreadAsProperties && !isIterable(cooked)) {
-      throw new TypeError(
-        `${typeof cooked} is not iterable: \`${state.source.substring(
-          node.start,
-          node.end
-        )}\``
-      );
+    if (!state.spreadAsProperties) {
+      assertIterable(cooked, state.source, node.start, node.end);
     }
     state.cooked = cooked;
   },
@@ -722,16 +714,6 @@ export const CookVisitor = Object.freeze<
     }
   },
 });
-
-function isIterable(cooked: any): boolean {
-  if (Array.isArray(cooked)) {
-    return true;
-  }
-  if (cooked === null || cooked === undefined) {
-    return false;
-  }
-  return typeof cooked[Symbol.iterator] === "function";
-}
 
 // Ref https://github.com/tc39/proposal-global
 // In addition, the es6-shim had to switch from Function('return this')()

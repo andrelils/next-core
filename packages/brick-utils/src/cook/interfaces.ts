@@ -64,11 +64,11 @@ export interface CookVisitorState<T = any> {
     returned: boolean;
     cooked?: unknown;
   };
-  switches?: {
-    discriminantCooked: unknown;
-    tested: boolean;
+  controlFlow?: {
+    switchDiscriminantCooked?: unknown;
+    switchTested?: boolean;
     // Broken or returned.
-    terminated: boolean;
+    broken?: boolean;
   };
   cooked?: T;
 }
@@ -76,11 +76,7 @@ export interface CookVisitorState<T = any> {
 export interface CookAssignmentData {
   operator?: string;
   initializeOnly?: boolean;
-  // initializeKind?: number;
   rightCooked?: unknown;
-  // kind?: VariableDeclaration["kind"];
-  // hasInit?: boolean;
-  // isVarWithoutInit?: boolean;
 }
 
 export type PropertyCooked = string | number;

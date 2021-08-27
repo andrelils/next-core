@@ -4,6 +4,9 @@ import {
   BlockStatement,
   BreakStatement,
   ExpressionStatement,
+  ForInStatement,
+  ForOfStatement,
+  ForStatement,
   FunctionDeclaration,
   FunctionExpression,
   IfStatement,
@@ -12,10 +15,60 @@ import {
   SwitchStatement,
   VariableDeclaration,
 } from "@babel/types";
-import { CookVisitorState, VisitorFn } from "./interfaces";
+import { CookVisitorState, VisitorCallback, VisitorFn } from "./interfaces";
 import { CookVisitor } from "./CookVisitor";
-import { spawnCookState } from "./utils";
+import { assertIterable, isTerminated, spawnCookState } from "./utils";
 import { CookScopeStackFactory } from "./Scope";
+
+const ForOfStatementItemVisitor = (
+  node: ForOfStatement | ForInStatement,
+  blockState: CookVisitorState,
+  callback: VisitorCallback<CookVisitorState>,
+  value: unknown
+): void => {
+  const leftState = spawnCookState(blockState, {
+    assignment: {
+      initializeOnly: true,
+      rightCooked: value,
+    },
+  });
+  callback(node.left, leftState);
+
+  callback(node.body, blockState);
+};
+
+const ForOfStatementVisitor: VisitorFn<CookVisitorState> = (
+  node: ForOfStatement | ForInStatement,
+  state,
+  callback
+) => {
+  const precookScope = state.scopeMapByNode.get(node);
+  const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
+  const blockState = spawnCookState(state, {
+    scopeStack,
+    controlFlow: {},
+  });
+
+  const rightState = spawnCookState(blockState);
+  callback(node.right, rightState);
+
+  if (node.type === "ForOfStatement") {
+    assertIterable(rightState.cooked, state.source, node.start, node.end);
+    for (const value of rightState.cooked) {
+      ForOfStatementItemVisitor(node, blockState, callback, value);
+      if (isTerminated(blockState)) {
+        break;
+      }
+    }
+  } else {
+    for (const value in rightState.cooked) {
+      ForOfStatementItemVisitor(node, blockState, callback, value);
+      if (isTerminated(blockState)) {
+        break;
+      }
+    }
+  }
+};
 
 const FunctionVisitor: VisitorFn<CookVisitorState> = (
   node: FunctionDeclaration | FunctionExpression | ArrowFunctionExpression,
@@ -128,7 +181,6 @@ export const FeastVisitor = Object.freeze<
 
     const bodyState = spawnCookState(state, {
       scopeStack,
-      switches: state.switches,
     });
 
     if (precookScope) {
@@ -144,19 +196,54 @@ export const FeastVisitor = Object.freeze<
 
     for (const statement of node.body) {
       callback(statement, bodyState);
-      if (bodyState.returns.returned) {
+      if (isTerminated(bodyState)) {
         break;
       }
     }
   },
   BreakStatement(node: BreakStatement, state) {
-    state.switches.terminated = true;
+    state.controlFlow.broken = true;
   },
   EmptyStatement() {
     // Do nothing.
   },
   ExpressionStatement(node: ExpressionStatement, state, callback) {
     callback(node.expression, spawnCookState(state));
+  },
+  ForInStatement: ForOfStatementVisitor,
+  ForOfStatement: ForOfStatementVisitor,
+  ForStatement(node: ForStatement, state, callback) {
+    const precookScope = state.scopeMapByNode.get(node);
+    const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
+    const blockState = spawnCookState(state, {
+      scopeStack,
+      controlFlow: {},
+    });
+
+    const init = (): void => {
+      if (node.init) {
+        callback(node.init, spawnCookState(blockState));
+      }
+    };
+    const test = (): boolean => {
+      if (node.test) {
+        const testState = spawnCookState(blockState);
+        callback(node.test, testState);
+        return testState.cooked;
+      }
+      return true;
+    };
+    const update = (): void => {
+      if (node.update) {
+        callback(node.update, spawnCookState(blockState));
+      }
+    };
+    for (init(); test(); update()) {
+      callback(node.body, spawnCookState(blockState));
+      if (isTerminated(blockState)) {
+        break;
+      }
+    }
   },
   FunctionDeclaration: FunctionVisitor,
   FunctionExpression: FunctionVisitor,
@@ -176,22 +263,19 @@ export const FeastVisitor = Object.freeze<
     }
     state.returns.returned = true;
     state.returns.cooked = argumentState.cooked;
-    if (state.switches) {
-      state.switches.terminated = true;
-    }
   },
   SwitchCase(node: SwitchCase, state, callback) {
-    if (!state.switches.tested && node.test) {
+    if (!state.controlFlow.switchTested && node.test) {
       const testState = spawnCookState(state);
       callback(node.test, testState);
-      state.switches.tested =
-        testState.cooked === state.switches.discriminantCooked;
+      state.controlFlow.switchTested =
+        testState.cooked === state.controlFlow.switchDiscriminantCooked;
     }
-    if (state.switches.tested || !node.test) {
+    if (state.controlFlow.switchTested || !node.test) {
       for (const statement of node.consequent) {
         callback(statement, state);
-        if (state.switches.terminated) {
-          state.switches.tested = false;
+        if (isTerminated(state)) {
+          state.controlFlow.switchTested = false;
           break;
         }
       }
@@ -203,27 +287,25 @@ export const FeastVisitor = Object.freeze<
 
     const precookScope = state.scopeMapByNode.get(node);
     const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
-    const bodyState = spawnCookState(state, {
+    const blockState = spawnCookState(state, {
       scopeStack,
-      switches: {
-        discriminantCooked: discriminantState.cooked,
-        tested: false,
-        terminated: false,
+      controlFlow: {
+        switchDiscriminantCooked: discriminantState.cooked,
       },
     });
 
     for (const hoistedFn of precookScope.hoistedFunctions) {
       callback(
         hoistedFn,
-        spawnCookState(bodyState, {
+        spawnCookState(blockState, {
           hoisting: true,
         })
       );
     }
 
     for (const switchCase of node.cases) {
-      callback(switchCase, bodyState);
-      if (bodyState.switches.terminated) {
+      callback(switchCase, blockState);
+      if (isTerminated(blockState)) {
         break;
       }
     }
@@ -231,12 +313,17 @@ export const FeastVisitor = Object.freeze<
   VariableDeclaration(node: VariableDeclaration, state, callback) {
     for (const declaration of node.declarations) {
       let initCooked;
-      if (declaration.init) {
+      let hasInit = false;
+      if (state.assignment) {
+        initCooked = state.assignment.rightCooked;
+        hasInit = true;
+      } else if (declaration.init) {
         const initState = spawnCookState(state);
         callback(declaration.init, initState);
         initCooked = initState.cooked;
+        hasInit = true;
       }
-      if (node.kind !== "var" || declaration.init) {
+      if (node.kind !== "var" || hasInit) {
         const idState = spawnCookState(state, {
           assignment: {
             initializeOnly: true,

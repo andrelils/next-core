@@ -53,6 +53,7 @@ export function spawnCookState(
     scopeMapByNode: parentState.scopeMapByNode,
     scopeStack: parentState.scopeStack,
     returns: parentState.returns,
+    controlFlow: parentState.controlFlow,
     ...extendsState,
   };
 }
@@ -60,17 +61,11 @@ export function spawnCookState(
 export function addVariableToScopeStack(
   name: string,
   kind: ScopeVariableKind,
-  scopeStack: PrecookScope[],
-  hasInit?: boolean
+  scopeStack: PrecookScope[]
 ): void {
   switch (kind) {
     case "param": {
       const scope = scopeStack[scopeStack.length - 1];
-      // if (process.env.NODE_ENV !== "production" && !(scope.flags & FLAG_FUNCTION)) {
-      //   throw new Error(`The top scope stack for a param should always be function, but received: ${scope.flags}`);
-      // }
-      // scope.lexical.add(name);
-
       scope.variables.add(name);
       scope.flagsMapByVariable.set(name, VARIABLE_FLAG_PARAM);
       break;
@@ -81,8 +76,6 @@ export function addVariableToScopeStack(
         scopeStack,
         /* FLAG_GLOBAL | */ FLAG_FUNCTION | FLAG_BLOCK
       );
-      // scope[kind === "let" ? "lexical" : "const"].add(name);
-
       scope.variables.add(name);
       scope.flagsMapByVariable.set(
         name,
@@ -95,14 +88,6 @@ export function addVariableToScopeStack(
         scopeStack,
         FLAG_GLOBAL | FLAG_FUNCTION | FLAG_BLOCK
       );
-      // if (scope.var.has(name) && !scope.varHasInit.has(name)) {
-      //   scope.var.delete(name);
-      // }
-      // if (!scope.var.has(name)) {
-      //   scope.lexical.delete(name);
-      //   getScopeRefOfFunctionDeclaration(scope).add(name);
-      // }
-
       scope.variables.add(name);
       const otherFlags =
         scope.flags & FLAG_GLOBAL
@@ -116,17 +101,6 @@ export function addVariableToScopeStack(
         scopeStack,
         /* FLAG_GLOBAL | */ FLAG_FUNCTION
       );
-      // if (!hasInit && scope.functions.has(name)) {
-      //   break;
-      // }
-      // for (const type of ["lexical", "const", "functions"] as const) {
-      //   scope[type].delete(name);
-      // }
-      // scope.var.add(name);
-      // if (hasInit) {
-      //   scope.varHasInit.add(name);
-      // }
-
       scope.variables.add(name);
       const prevFlags = scope.flagsMapByVariable.get(name) ?? 0;
       scope.flagsMapByVariable.set(name, prevFlags | VARIABLE_FLAG_VAR);
@@ -154,8 +128,29 @@ export function findScopeByFlags(
   }
 }
 
-// export function getScopeRefOfFunctionDeclaration(scope: PrecookScope ): Set<string>;
-// export function getScopeRefOfFunctionDeclaration(scope: CookScope ): Map<string, CookScopeRef>;
-// export function getScopeRefOfFunctionDeclaration(scope: PrecookScope | CookScope): Set<string> | Map<string, CookScopeRef> {
-//   return scope[scope.flags & FLAG_GLOBAL ? "const" : "functions"];
-// }
+export function assertIterable(
+  cooked: unknown,
+  source: string,
+  start: number,
+  end: number
+): void {
+  if (!isIterable(cooked)) {
+    throw new TypeError(
+      `${typeof cooked} is not iterable: \`${source.substring(start, end)}\``
+    );
+  }
+}
+
+export function isTerminated(state: CookVisitorState): boolean {
+  return state.returns.returned || state.controlFlow?.broken;
+}
+
+function isIterable(cooked: unknown): boolean {
+  if (Array.isArray(cooked)) {
+    return true;
+  }
+  if (cooked === null || cooked === undefined) {
+    return false;
+  }
+  return typeof (cooked as Iterable<unknown>)[Symbol.iterator] === "function";
+}

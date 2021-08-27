@@ -25,7 +25,7 @@ import {
 } from "./Scope";
 import { addVariableToScopeStack, spawnPrecookState } from "./utils";
 
-const ForStatementVisitor: VisitorFn<PrecookVisitorState> = (
+const ForOfStatementVisitor: VisitorFn<PrecookVisitorState> = (
   node: ForInStatement | ForOfStatement,
   state,
   callback
@@ -149,8 +149,8 @@ export const PrefeastVisitor = Object.freeze<
       callback(node.expression, state);
     }
   },
-  ForInStatement: ForStatementVisitor,
-  ForOfStatement: ForStatementVisitor,
+  ForInStatement: ForOfStatementVisitor,
+  ForOfStatement: ForOfStatementVisitor,
   ForStatement(node: ForStatement, state, callback) {
     if (state.hoisting) {
       if (node.init) {

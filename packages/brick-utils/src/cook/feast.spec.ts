@@ -779,6 +779,283 @@ describe("feast", () => {
         ],
       },
     ],
+    [
+      "for const ... of",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            for (const i of [1, 2]) {
+              total += i;
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 3,
+          },
+        ],
+      },
+    ],
+    [
+      "for var ... of",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            for (var i of [1, 2]) {
+              total += i;
+            }
+            return total + i;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 5,
+          },
+        ],
+      },
+    ],
+    [
+      "for let ... of and break",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            for (let i of [1, 2]) {
+              total += i;
+              if (total >= 1) {
+                break;
+                // Should never reach here.
+                total += 10;
+              }
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 1,
+          },
+        ],
+      },
+    ],
+    [
+      "for let ... in",
+      {
+        source: `
+          function test() {
+            let total = '';
+            for (let i in {a:1,b:2}) {
+              total += i;
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: "ab",
+          },
+        ],
+      },
+    ],
+    [
+      "for var ... in",
+      {
+        source: `
+          function test() {
+            let total = '';
+            for (var i in {a:1,b:2}) {
+              total += i;
+            }
+            return total + i;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: "abb",
+          },
+        ],
+      },
+    ],
+    [
+      "for const ... in and return",
+      {
+        source: `
+          function test() {
+            let total = '';
+            for (let i in {a:1,b:2}) {
+              total += i;
+              if (total.length >= 1) {
+                return 'oops: ' + total;
+              }
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: "oops: a",
+          },
+        ],
+      },
+    ],
+    [
+      "for let ...",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            const list = [1, 2];
+            for (let i = 0; i < list.length; i += 1) {
+              total += list[i];
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 3,
+          },
+        ],
+      },
+    ],
+    [
+      "for var ... and break",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            const list = [1, 2];
+            for (var i = 0; i < list.length; i += 1) {
+              total += list[i];
+              if (total >= 1) {
+                break;
+              }
+            }
+            return total + i;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 1,
+          },
+        ],
+      },
+    ],
+    [
+      "nested for ...",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            const list = [1, 2];
+            const object = {a: 3, b: 4};
+            for (const i of list) {
+              total += i;
+              for (const k in object) {
+                total += object[k];
+              }
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 17,
+          },
+        ],
+      },
+    ],
+    [
+      "nested for ... and break inner",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            const list = [1, 2];
+            const object = {a: 3, b: 4};
+            for (const i of list) {
+              total += i;
+              for (const k in object) {
+                total += object[k];
+                break;
+              }
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 9,
+          },
+        ],
+      },
+    ],
+    [
+      "nested for ... and break outer",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            const list = [1, 2];
+            const object = {a: 3, b: 4};
+            for (const i of list) {
+              total += i;
+              for (const k in object) {
+                total += object[k];
+              }
+              break;
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 8,
+          },
+        ],
+      },
+    ],
+    [
+      "nested for ... and return inner",
+      {
+        source: `
+          function test() {
+            let total = 0;
+            const list = [1, 2];
+            const object = {a: 3, b: 4};
+            for (const i of list) {
+              total += i;
+              for (const k in object) {
+                total += object[k];
+                return "oops: " + total;
+              }
+              alert('yaks');
+            }
+            return total;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: "oops: 4",
+          },
+        ],
+      },
+    ],
   ])("%s", (desc, { source, cases }) => {
     const func = feast(prefeast(source), getGlobalVariables()) as (
       ...args: unknown[]
@@ -817,6 +1094,28 @@ describe("feast", () => {
           (function f(){
             f = 1;
           })();
+        }
+      `,
+      [[]],
+    ],
+    [
+      "assign for const ... of",
+      `
+        function test(){
+          for (const i of [1]) {
+            i = 2;
+          }
+        }
+      `,
+      [[]],
+    ],
+    [
+      "assign for const ...",
+      `
+        function test(){
+          for (const i=0; i<2; i+=1) {
+            i = 2;
+          }
         }
       `,
       [[]],

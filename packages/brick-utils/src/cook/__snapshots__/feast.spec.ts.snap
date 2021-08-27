@@ -2,6 +2,10 @@
 
 exports[`feast assign constants should throw 1`] = `"Assignment to constant variable"`;
 
+exports[`feast assign for const ... of should throw 1`] = `"Assignment to constant variable"`;
+
+exports[`feast assign for const ... should throw 1`] = `"Assignment to constant variable"`;
+
 exports[`feast assign function expressions should throw 1`] = `"Assignment to constant variable"`;
 
 exports[`feast assign global functions should throw 1`] = `"Assignment to constant variable"`;
