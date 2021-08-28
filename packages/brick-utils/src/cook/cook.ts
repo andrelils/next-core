@@ -3,7 +3,6 @@ import { walkFactory } from "./utils";
 import { CookVisitor } from "./CookVisitor";
 import { CookVisitorState, PrecookResult } from "./interfaces";
 import { supply } from "./supply";
-import { CookScopeFactory } from "./Scope";
 
 export function cook<T = unknown>(
   precooked: PrecookResult,
@@ -12,10 +11,7 @@ export function cook<T = unknown>(
   const state: CookVisitorState<T> = {
     source: precooked.source,
     scopeMapByNode: precooked.scopeMapByNode,
-    scopeStack: [
-      supply(precooked.attemptToVisitGlobals, globalVariables),
-      CookScopeFactory(precooked.baseScope),
-    ],
+    scopeStack: [supply(precooked.attemptToVisitGlobals, globalVariables)],
   };
   walkFactory(CookVisitor, (node: Node) => {
     throw new SyntaxError(

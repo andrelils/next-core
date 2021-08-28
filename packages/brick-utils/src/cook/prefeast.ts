@@ -6,7 +6,6 @@ import {
   PrefeastResult,
 } from "./interfaces";
 import { PrefeastVisitor } from "./PrefeastVisitor";
-import { FLAG_BLOCK, PrecookScope } from "./Scope";
 import { walkFactory } from "./utils";
 
 export function prefeast(
@@ -20,9 +19,8 @@ export function prefeast(
   if (func.type !== "FunctionExpression") {
     throw new SyntaxError("Invalid function declaration");
   }
-  const baseScope = new PrecookScope(FLAG_BLOCK);
   const state: PrecookVisitorState = {
-    scopeStack: [baseScope],
+    scopeStack: [],
     attemptToVisitGlobals: new Set(),
     scopeMapByNode: new WeakMap(),
     isRoot: true,
@@ -46,6 +44,5 @@ export function prefeast(
     function: func,
     attemptToVisitGlobals: state.attemptToVisitGlobals,
     scopeMapByNode: state.scopeMapByNode,
-    baseScope,
   };
 }

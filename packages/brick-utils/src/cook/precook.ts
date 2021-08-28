@@ -7,15 +7,13 @@ import {
   PrecookResult,
   PrecookOptions,
 } from "./interfaces";
-import { FLAG_BLOCK, PrecookScope } from "./Scope";
 
 export function precook(
   source: string,
   options?: PrecookOptions
 ): PrecookResult {
-  const baseScope = new PrecookScope(FLAG_BLOCK);
   const state: PrecookVisitorState = {
-    scopeStack: [baseScope],
+    scopeStack: [],
     attemptToVisitGlobals: new Set(),
     scopeMapByNode: new WeakMap(),
   };
@@ -44,6 +42,5 @@ export function precook(
     expression,
     attemptToVisitGlobals: state.attemptToVisitGlobals,
     scopeMapByNode: state.scopeMapByNode,
-    baseScope,
   };
 }

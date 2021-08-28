@@ -35,7 +35,6 @@ export interface BasePreResult {
   source: string;
   attemptToVisitGlobals: Set<string>;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
-  baseScope: PrecookScope;
 }
 
 export interface PrecookResult extends BasePreResult {

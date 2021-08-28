@@ -3,7 +3,6 @@ import { walkFactory } from "./utils";
 import { FeastVisitor } from "./FeastVisitor";
 import { CookVisitorState, PrefeastResult } from "./interfaces";
 import { supply } from "./supply";
-import { CookScopeFactory } from "./Scope";
 
 export function feast<T extends (args: unknown[]) => unknown>(
   prefeasted: PrefeastResult,
@@ -12,10 +11,7 @@ export function feast<T extends (args: unknown[]) => unknown>(
   const state: CookVisitorState<T> = {
     source: prefeasted.source,
     scopeMapByNode: prefeasted.scopeMapByNode,
-    scopeStack: [
-      supply(prefeasted.attemptToVisitGlobals, globalVariables),
-      CookScopeFactory(prefeasted.baseScope),
-    ],
+    scopeStack: [supply(prefeasted.attemptToVisitGlobals, globalVariables)],
     isRoot: true,
   };
   walkFactory(FeastVisitor, (node: Node) => {
