@@ -3,15 +3,15 @@ import { FunctionExpression, Node } from "@babel/types";
 import {
   PrecookOptions,
   PrecookVisitorState,
-  PrefeastResult,
+  PrecookFunctionResult,
 } from "./interfaces";
-import { PrefeastVisitor } from "./PrefeastVisitor";
+import { PrecookFunctionVisitor } from "./PrecookFunctionVisitor";
 import { walkFactory } from "./utils";
 
-export function prefeast(
+export function precookFunction(
   source: string,
   options?: PrecookOptions
-): PrefeastResult {
+): PrecookFunctionResult {
   const func = parseExpression(source, {
     plugins: ["estree"],
     strictMode: true,
@@ -27,8 +27,8 @@ export function prefeast(
   };
   walkFactory(
     options?.visitors
-      ? { ...PrefeastVisitor, ...options.visitors }
-      : PrefeastVisitor,
+      ? { ...PrecookFunctionVisitor, ...options.visitors }
+      : PrecookFunctionVisitor,
     (node: Node) => {
       // eslint-disable-next-line no-console
       console.warn(

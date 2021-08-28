@@ -1,10 +1,10 @@
-import { prefeast } from "./prefeast";
+import { precookFunction } from "./precookFunction";
 
 const consoleWarn = jest
   .spyOn(console, "warn")
   .mockImplementation(() => void 0);
 
-describe("prefeast", () => {
+describe("precookFunction", () => {
   afterEach(() => {
     jest.clearAllMocks();
   });
@@ -210,7 +210,9 @@ describe("prefeast", () => {
       ["c", "b", "d"],
     ],
   ])("%s", (desc, source, result) => {
-    expect(Array.from(prefeast(source).attemptToVisitGlobals)).toEqual(result);
+    expect(Array.from(precookFunction(source).attemptToVisitGlobals)).toEqual(
+      result
+    );
   });
 
   it.each<[string, string[]]>([
@@ -255,14 +257,19 @@ describe("prefeast", () => {
         "j",
       ],
     ],
-  ])("prefeast(%j).attemptToVisitGlobals should be %j", (input, cooked) => {
-    expect(Array.from(prefeast(input).attemptToVisitGlobals.values())).toEqual(
-      cooked
-    );
-  });
+  ])(
+    "precookFunction(%j).attemptToVisitGlobals should be %j",
+    (input, cooked) => {
+      expect(
+        Array.from(precookFunction(input).attemptToVisitGlobals.values())
+      ).toEqual(cooked);
+    }
+  );
 
   it("should warn unsupported type", () => {
-    const { attemptToVisitGlobals } = prefeast("function test() { this }");
+    const { attemptToVisitGlobals } = precookFunction(
+      "function test() { this }"
+    );
     expect(Array.from(attemptToVisitGlobals.values())).toEqual([]);
     expect(consoleWarn).toBeCalledTimes(1);
     expect(consoleWarn).toBeCalledWith(
@@ -272,7 +279,7 @@ describe("prefeast", () => {
 
   it("should throw for invalid function declaration", () => {
     expect(() => {
-      prefeast("function test() {}, test()");
+      precookFunction("function test() {}, test()");
     }).toThrowErrorMatchingInlineSnapshot(`"Invalid function declaration"`);
   });
 });

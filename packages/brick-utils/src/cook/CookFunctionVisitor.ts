@@ -169,7 +169,7 @@ const FunctionVisitor: VisitorFn<CookVisitorState> = (
   }
 };
 
-export const FeastVisitor = Object.freeze({
+export const CookFunctionVisitor = Object.freeze({
   ...CookVisitor,
   ArrowFunctionExpression: FunctionVisitor,
   AssignmentExpression(node: AssignmentExpression, state, callback) {

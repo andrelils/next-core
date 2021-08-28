@@ -98,7 +98,7 @@ export type VisitorFn<T> = (
   callback: VisitorCallback<T>
 ) => void;
 
-export interface PrefeastResult extends BasePreResult {
+export interface PrecookFunctionResult extends BasePreResult {
   function: FunctionExpression;
 }
 

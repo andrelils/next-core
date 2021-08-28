@@ -103,7 +103,7 @@ const FunctionVisitor: VisitorFn<PrecookVisitorState> = (
   callback(node.body, bodyState);
 };
 
-export const PrefeastVisitor = Object.freeze<
+export const PrecookFunctionVisitor = Object.freeze<
   Record<string, VisitorFn<PrecookVisitorState>>
 >({
   ...PrecookVisitor,

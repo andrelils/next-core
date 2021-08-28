@@ -1,9 +1,9 @@
-import { feast } from "./feast";
-import { prefeast } from "./prefeast";
+import { cookFunction } from "./cookFunction";
+import { precookFunction } from "./precookFunction";
 
 jest.spyOn(console, "warn").mockImplementation(() => void 0);
 
-describe("feast", () => {
+describe("cookFunction", () => {
   const getGlobalVariables = (): Record<string, unknown> => ({
     DATA: {
       for: "good",
@@ -1447,9 +1447,10 @@ describe("feast", () => {
       },
     ],
   ])("%s", (desc, { source, cases }) => {
-    const func = feast(prefeast(source), getGlobalVariables()) as (
-      ...args: unknown[]
-    ) => unknown;
+    const func = cookFunction(
+      precookFunction(source),
+      getGlobalVariables()
+    ) as (...args: unknown[]) => unknown;
     for (const { args, result } of cases) {
       const equivalentFunc = new Function(`"use strict"; return (${source})`)();
       expect(equivalentFunc(...args)).toEqual(result);
@@ -1544,9 +1545,10 @@ describe("feast", () => {
     const equivalentFunc = new Function(`"use strict"; return (${source})`)();
     expect(() => equivalentFunc()).toThrowError();
     expect(() => {
-      const func = feast(prefeast(source), getGlobalVariables()) as (
-        ...args: unknown[]
-      ) => unknown;
+      const func = cookFunction(
+        precookFunction(source),
+        getGlobalVariables()
+      ) as (...args: unknown[]) => unknown;
       func();
     }).toThrowErrorMatchingSnapshot();
   });
@@ -1587,9 +1589,10 @@ describe("feast", () => {
     const equivalentFunc = new Function(`"use strict"; return (${source})`)();
     expect(() => equivalentFunc()).not.toThrowError();
     expect(() => {
-      const func = feast(prefeast(source), getGlobalVariables()) as (
-        ...args: unknown[]
-      ) => unknown;
+      const func = cookFunction(
+        precookFunction(source),
+        getGlobalVariables()
+      ) as (...args: unknown[]) => unknown;
       func();
     }).toThrowErrorMatchingSnapshot();
   });
