@@ -23,12 +23,14 @@ export function walkFactory<T>(
   visitor: Record<string, VisitorFn<T>>,
   catchUnsupportedNodeType: (node: any) => void
 ): (node: any, state: T) => void {
+  const warnedNodes = new WeakSet();
   return function walk(node: any, state: T) {
     const nodeVisitor = visitor[node.type];
     if (nodeVisitor) {
       nodeVisitor(node, state, walk);
-    } else {
+    } else if (!warnedNodes.has(node)) {
       catchUnsupportedNodeType(node);
+      warnedNodes.add(node);
     }
   };
 }

@@ -1,6 +1,8 @@
 import { feast } from "./feast";
 import { prefeast } from "./prefeast";
 
+jest.spyOn(console, "warn").mockImplementation(() => void 0);
+
 describe("feast", () => {
   const getGlobalVariables = (): Record<string, any> => ({
     DATA: {
@@ -249,6 +251,8 @@ describe("feast", () => {
               return 'A';
             } else if (a === 2) {
               return 'B';
+            } else if (a === 3) {
+              return;
             } else {
               return 'C';
             }
@@ -265,6 +269,10 @@ describe("feast", () => {
           },
           {
             args: [3],
+            result: undefined,
+          },
+          {
+            args: [4],
             result: "C",
           },
         ],
@@ -1322,14 +1330,19 @@ describe("feast", () => {
       },
     ],
     [
-      "",
+      "empty statement",
       {
         source: `
           function test() {
-
+            ;
           }
         `,
-        cases: [],
+        cases: [
+          {
+            args: [],
+            result: undefined,
+          },
+        ],
       },
     ],
     [
@@ -1385,7 +1398,7 @@ describe("feast", () => {
       {
         source: `
           function test() {
-            let [a, b, c, d, e, f] = [10, 20, 30, 40, 50, 60];
+            let [a, b, c, d, e, f, i] = [10, 20, 30, 40, 50, 60, 70];
             const g = { h: 70 };
             let r = a;
             let s = (b += 1);
@@ -1394,15 +1407,16 @@ describe("feast", () => {
             let v = (e /= 2);
             let w = (f %= 7);
             let x = (g.h += 2);
-            return [[a, b, c, d, e, f, g.h], [r, s, t, u, v, w, x]];
+            let y = (i **= 2);
+            return [[a, b, c, d, e, f, g.h, i], [r, s, t, u, v, w, x, y]];
           }
         `,
         cases: [
           {
             args: [],
             result: [
-              [10, 21, 29, 80, 25, 4, 72],
-              [10, 21, 29, 80, 25, 4, 72],
+              [10, 21, 29, 80, 25, 4, 72, 4900],
+              [10, 21, 29, 80, 25, 4, 72, 4900],
             ],
           },
         ],
@@ -1491,6 +1505,41 @@ describe("feast", () => {
         }
       `,
     ],
+    [
+      "try without catch",
+      `
+        function test() {
+          let a = 1, b, c;
+          try {
+            b = 'yep';
+            a();
+            b = 'nope';
+          } finally {
+            c = a + ':' + b;
+          }
+          return c;
+        }
+      `,
+    ],
+    [
+      "assign member of nil",
+      `
+        function test() {
+          let a;
+          a.b = 1;
+        }
+      `,
+    ],
+    [
+      "access before initialized",
+      `
+        function test() {
+          let a = typeof b;
+          let b;
+          return a;
+        }
+      `,
+    ],
   ])("%s should throw", (desc, source) => {
     const equivalentFunc = new Function(`"use strict"; return (${source})`)();
     expect(() => equivalentFunc()).toThrowError();
@@ -1513,6 +1562,25 @@ describe("feast", () => {
       "generator functions",
       `
         function* test(){}
+      `,
+    ],
+    [
+      "bitwise and assignment",
+      `
+        function test() {
+          let a = 1, b = 2;
+          b &= a;
+          return b;
+        }
+      `,
+    ],
+    [
+      "labeled statement",
+      `
+        function test() {
+          loop:
+          for (let i = 0; i < 1; i++) {}
+        }
       `,
     ],
   ])("%s should throw", (desc, source) => {

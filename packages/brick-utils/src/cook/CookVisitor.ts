@@ -73,30 +73,29 @@ export const CookVisitor = Object.freeze<
     state.cooked = cookedElements;
   },
   ArrayPattern(node: ArrayPattern, state, callback) {
-    if (state.assignment) {
-      assertIterable(
-        state.assignment.rightCooked,
-        state.source,
-        node.start,
-        node.end
+    // if (state.assignment) {
+    assertIterable(
+      state.assignment.rightCooked,
+      state.source,
+      node.start,
+      node.end
+    );
+    const [...spreadArgs] = state.assignment.rightCooked as unknown[];
+    node.elements.forEach((element, index) => {
+      callback(
+        element,
+        spawnCookState(state, {
+          assignment: {
+            ...state.assignment,
+            rightCooked:
+              element.type === "RestElement"
+                ? spreadArgs.slice(index)
+                : spreadArgs[index],
+          },
+        })
       );
-      const [...spreadArgs] = state.assignment.rightCooked as unknown[];
-      node.elements.forEach((element, index) => {
-        callback(
-          element,
-          spawnCookState(state, {
-            assignment: {
-              ...state.assignment,
-              rightCooked:
-                element.type === "RestElement"
-                  ? spreadArgs.slice(index)
-                  : spreadArgs[index],
-            },
-          })
-        );
-      });
-    }
-    // Should never reach here.
+    });
+    // }
   },
   ArrowFunctionExpression(
     node: ArrowFunctionExpression,
@@ -149,23 +148,23 @@ export const CookVisitor = Object.freeze<
     };
   },
   AssignmentPattern(node: AssignmentPattern, state, callback) {
-    if (state.assignment) {
-      if (state.assignment.rightCooked === undefined) {
-        const paramValueState = spawnCookState(state);
-        callback(node.right, paramValueState);
-        callback(
-          node.left,
-          spawnCookState(state, {
-            assignment: {
-              ...state.assignment,
-              rightCooked: paramValueState.cooked,
-            },
-          })
-        );
-      } else {
-        callback(node.left, state);
-      }
+    // if (state.assignment) {
+    if (state.assignment.rightCooked === undefined) {
+      const paramValueState = spawnCookState(state);
+      callback(node.right, paramValueState);
+      callback(
+        node.left,
+        spawnCookState(state, {
+          assignment: {
+            ...state.assignment,
+            rightCooked: paramValueState.cooked,
+          },
+        })
+      );
+    } else {
+      callback(node.left, state);
     }
+    // }
     // Should never reach here.
   },
   BinaryExpression(node: BinaryExpression, state, callback) {
@@ -192,6 +191,9 @@ export const CookVisitor = Object.freeze<
         return;
       case "*":
         state.cooked = leftCooked * rightCooked;
+        return;
+      case "**":
+        state.cooked = leftCooked ** rightCooked;
         return;
       case "==":
         state.cooked = leftCooked == rightCooked;
@@ -323,12 +325,9 @@ export const CookVisitor = Object.freeze<
         ref.cooked = state.assignment.rightCooked;
         ref.initialized = true;
       } else if (!ref.initialized) {
-        if (!state.checkTypeOf) {
-          throw new ReferenceError(
-            `Cannot access '${node.name}' before initialization`
-          );
-        }
-        state.cooked = undefined;
+        throw new ReferenceError(
+          `Cannot access '${node.name}' before initialization`
+        );
       } else if (state.assignment) {
         if (ref.const) {
           throw new TypeError(`Assignment to constant variable`);
@@ -484,49 +483,49 @@ export const CookVisitor = Object.freeze<
     state.cooked = Object.fromEntries(cookedEntries);
   },
   ObjectPattern(node: ObjectPattern, state, callback) {
-    if (state.assignment) {
-      const rightCooked = state.assignment.rightCooked;
-      if (rightCooked === null || rightCooked === undefined) {
-        throw new TypeError(`Cannot destructure ${rightCooked}`);
-      }
-      const usedProps = new Set<PropertyCooked>();
-      for (const prop of node.properties) {
-        if (prop.type === "RestElement") {
-          callback(
-            prop,
-            spawnCookState(state, {
-              assignment: {
-                ...state.assignment,
-                rightCooked: Object.fromEntries(
-                  Object.entries(rightCooked).filter(
-                    (entry) => !usedProps.has(entry[0])
-                  )
-                ),
-              },
-            })
-          );
-        } else {
-          const keyState: CookVisitorState<PropertyCooked> = spawnCookState(
-            state,
-            {
-              identifierAsLiteralString: true,
-            }
-          );
-          callback(prop.key, keyState);
-          usedProps.add(keyState.cooked);
-          callback(
-            prop.value,
-            spawnCookState(state, {
-              assignment: {
-                ...state.assignment,
-                rightCooked:
-                  rightCooked[keyState.cooked as keyof typeof rightCooked],
-              },
-            })
-          );
-        }
+    // if (state.assignment) {
+    const rightCooked = state.assignment.rightCooked;
+    if (rightCooked === null || rightCooked === undefined) {
+      throw new TypeError(`Cannot destructure ${rightCooked}`);
+    }
+    const usedProps = new Set<PropertyCooked>();
+    for (const prop of node.properties) {
+      if (prop.type === "RestElement") {
+        callback(
+          prop,
+          spawnCookState(state, {
+            assignment: {
+              ...state.assignment,
+              rightCooked: Object.fromEntries(
+                Object.entries(rightCooked).filter(
+                  (entry) => !usedProps.has(entry[0])
+                )
+              ),
+            },
+          })
+        );
+      } else {
+        const keyState: CookVisitorState<PropertyCooked> = spawnCookState(
+          state,
+          {
+            identifierAsLiteralString: true,
+          }
+        );
+        callback(prop.key, keyState);
+        usedProps.add(keyState.cooked);
+        callback(
+          prop.value,
+          spawnCookState(state, {
+            assignment: {
+              ...state.assignment,
+              rightCooked:
+                rightCooked[keyState.cooked as keyof typeof rightCooked],
+            },
+          })
+        );
       }
     }
+    // }
     // Should never reach here.
   },
   Property(
@@ -755,6 +754,9 @@ function performAssignment(
         value as number);
     case "%=":
       return ((object[property as keyof typeof object] as number) %=
+        value as number);
+    case "**=":
+      return ((object[property as keyof typeof object] as number) **=
         value as number);
   }
 

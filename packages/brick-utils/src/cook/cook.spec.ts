@@ -131,6 +131,7 @@ describe("cook", () => {
     ["DATA.number5 / 2", 2.5],
     ["DATA.number5 % 2", 1],
     ["DATA.number5 * 2", 10],
+    ["DATA.number5 ** 2", 25],
     ["DATA.number5 == '5'", true],
     ["DATA.number5 == 4", false],
     ["DATA.number5 === 5", true],

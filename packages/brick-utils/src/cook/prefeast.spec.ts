@@ -5,6 +5,10 @@ const consoleWarn = jest
   .mockImplementation(() => void 0);
 
 describe("prefeast", () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
   it.each<[string, string, string[]]>([
     [
       "lexical variables in block statement",
@@ -258,12 +262,17 @@ describe("prefeast", () => {
   });
 
   it("should warn unsupported type", () => {
-    expect(
-      Array.from(prefeast("this.bad").attemptToVisitGlobals.values())
-    ).toEqual([]);
+    const { attemptToVisitGlobals } = prefeast("function test() { this }");
+    expect(Array.from(attemptToVisitGlobals.values())).toEqual([]);
     expect(consoleWarn).toBeCalledTimes(1);
     expect(consoleWarn).toBeCalledWith(
       "Unsupported node type `ThisExpression`: `this`"
     );
+  });
+
+  it("should throw for invalid function declaration", () => {
+    expect(() => {
+      prefeast("function test() {} test()");
+    }).toThrowErrorMatchingInlineSnapshot(`"Invalid function declaration"`);
   });
 });

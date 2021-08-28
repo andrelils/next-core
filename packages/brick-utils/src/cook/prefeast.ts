@@ -18,7 +18,7 @@ export function prefeast(
     strictMode: true,
   });
   const body = file.program.body;
-  if (body.length !== 1 && body[0].type !== "FunctionDeclaration") {
+  if (body.length !== 1 || body[0].type !== "FunctionDeclaration") {
     throw new SyntaxError("Invalid function declaration");
   }
   const func = body[0] as FunctionDeclaration;

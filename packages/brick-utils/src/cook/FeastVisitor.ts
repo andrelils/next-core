@@ -32,8 +32,6 @@ import {
   lowerLevelSpawnCookStateOfBlock,
 } from "./utils";
 
-// Todo:  while
-
 const ForOfStatementItemVisitor = (
   node: ForOfStatement | ForInStatement,
   blockState: CookVisitorState,
