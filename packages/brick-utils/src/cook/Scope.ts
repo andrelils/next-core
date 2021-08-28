@@ -1,20 +1,15 @@
 import { FunctionDeclaration } from "@babel/types";
-import { CookAssignmentData } from "./interfaces";
 
-export const FLAG_SANDBOX = 0b0001;
-export const FLAG_GLOBAL = 0b0010;
-export const FLAG_FUNCTION = 0b0100;
-export const FLAG_BLOCK = 0b1000;
+// prettier-ignore
+export const FLAG_SANDBOX  = 0b001,
+             FLAG_FUNCTION = 0b010,
+             FLAG_BLOCK    = 0b100,
 
-export const VARIABLE_FLAG_VAR = 0b00001;
-export const VARIABLE_FLAG_LET = 0b00010;
-export const VARIABLE_FLAG_CONST = 0b00100;
-export const VARIABLE_FLAG_FUNCTION = 0b01000;
-export const VARIABLE_FLAG_PARAM = 0b10000;
-
-// export const INIT_KIND_PARAM      = 1;
-// export const INIT_KIND_FUNCTION   = 2;
-// export const INIT_KIND_ASSIGNMENT = 3;
+             VARIABLE_FLAG_VAR      = 0b00001,
+             VARIABLE_FLAG_LET      = 0b00010,
+             VARIABLE_FLAG_CONST    = 0b00100,
+             VARIABLE_FLAG_FUNCTION = 0b01000,
+             VARIABLE_FLAG_PARAM    = 0b10000;
 
 export class PrecookScope {
   readonly flags: number;
@@ -67,7 +62,6 @@ export function CookScopeFactory(precookScope: PrecookScope): CookScope {
       const: !!(variableFlags & VARIABLE_FLAG_CONST),
     });
   }
-
   return scope;
 }
 

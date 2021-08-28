@@ -5,7 +5,9 @@ import { precook } from "./precook";
 jest.spyOn(console, "warn").mockImplementation(() => void 0);
 
 jest.mock("../placeholder/pipes", () => ({
-  PipeRegistry: new Map([["string", (v: any) => (v == null ? "" : String(v))]]),
+  PipeRegistry: new Map([
+    ["string", (v: unknown) => (v == null ? "" : String(v))],
+  ]),
 }));
 
 describe("cook", () => {
@@ -17,7 +19,7 @@ describe("cook", () => {
     clock.uninstall();
   });
 
-  const getGlobalVariables = (): Record<string, any> => ({
+  const getGlobalVariables = (): Record<string, unknown> => ({
     DATA: {
       for: "good",
       null: null,
@@ -42,7 +44,7 @@ describe("cook", () => {
     },
   });
 
-  it.each<[string, any]>([
+  it.each<[string, unknown]>([
     ["'good'", "good"],
     ["1", 1],
     ["null", null],

@@ -21,12 +21,13 @@ import {
   UnaryExpression,
 } from "@babel/types";
 import {
-  VisitorFn,
   CookVisitorState,
   PropertyEntryCooked,
   ObjectCooked,
   PropertyCooked,
   ChainExpression,
+  ICookVisitor,
+  EstreeLiteral,
 } from "./interfaces";
 import { CookScopeStackFactory } from "./Scope";
 import { assertIterable, spawnCookState } from "./utils";
@@ -41,9 +42,7 @@ const SupportedConstructorSet = new Set([
   "WeakSet",
 ]);
 
-export const CookVisitor = Object.freeze<
-  Record<string, VisitorFn<CookVisitorState>>
->({
+export const CookVisitor = Object.freeze({
   ArrayExpression(
     node: ArrayExpression,
     state: CookVisitorState<unknown[]>,
@@ -53,9 +52,7 @@ export const CookVisitor = Object.freeze<
     let index = 0;
     for (const element of node.elements) {
       if (element !== null) {
-        const elementState = spawnCookState(state) as CookVisitorState<
-          unknown[]
-        >;
+        const elementState = spawnCookState<unknown[]>(state);
         callback(element, elementState);
         if (element.type === "SpreadElement") {
           for (let i = 0; i < elementState.cooked.length; i++) {
@@ -99,7 +96,7 @@ export const CookVisitor = Object.freeze<
   },
   ArrowFunctionExpression(
     node: ArrowFunctionExpression,
-    state: CookVisitorState<(...args: any[]) => any>,
+    state: CookVisitorState<(...args: unknown[]) => unknown>,
     callback
   ) {
     if (!node.expression) {
@@ -120,12 +117,12 @@ export const CookVisitor = Object.freeze<
       );
     }
 
-    state.cooked = function (...args: unknown[]) {
+    state.cooked = function (...args) {
       const scopeStack = CookScopeStackFactory(
         state.scopeStack,
         state.scopeMapByNode.get(node)
       );
-      const bodyState: CookVisitorState = spawnCookState(state, {
+      const bodyState = spawnCookState(state, {
         scopeStack,
       });
 
@@ -168,11 +165,11 @@ export const CookVisitor = Object.freeze<
     // Should never reach here.
   },
   BinaryExpression(node: BinaryExpression, state, callback) {
-    const leftState = spawnCookState(state);
+    const leftState = spawnCookState<number>(state);
     callback(node.left, leftState);
     const leftCooked = leftState.cooked;
 
-    const rightState = spawnCookState(state);
+    const rightState = spawnCookState<number>(state);
     callback(node.right, rightState);
     const rightCooked = rightState.cooked;
 
@@ -228,7 +225,9 @@ export const CookVisitor = Object.freeze<
             )} is not a function`
           );
         }
-        state.cooked = rightCooked(leftCooked);
+        state.cooked = (
+          rightCooked as unknown as (...args: unknown[]) => unknown
+        )(leftCooked);
         return;
     }
 
@@ -239,10 +238,9 @@ export const CookVisitor = Object.freeze<
     );
   },
   CallExpression(node: CallExpression, state, callback) {
-    const calleeState: CookVisitorState<(...args: any[]) => any> =
-      spawnCookState(state, {
-        chainRef: state.chainRef,
-      });
+    const calleeState = spawnCookState<(...args: unknown[]) => unknown>(state, {
+      chainRef: state.chainRef,
+    });
     callback(node.callee, calleeState);
     const calleeCooked = calleeState.cooked;
 
@@ -260,7 +258,7 @@ export const CookVisitor = Object.freeze<
 
     const cookedArgs = [];
     for (const arg of node.arguments) {
-      const argState = spawnCookState(state);
+      const argState = spawnCookState<unknown[]>(state);
       callback(arg, argState);
       if (arg.type === "SpreadElement") {
         cookedArgs.push(...argState.cooked);
@@ -355,7 +353,7 @@ export const CookVisitor = Object.freeze<
 
     throw new ReferenceError(`${node.name} is not defined`);
   },
-  Literal(node: any, state) {
+  Literal(node: EstreeLiteral, state) {
     if (node.regex) {
       if (node.value === null) {
         // Invalid regular expression fails silently in @babel/parser.
@@ -403,7 +401,7 @@ export const CookVisitor = Object.freeze<
     state.cooked = rightState.cooked;
   },
   MemberExpression(node: MemberExpression, state, callback) {
-    const objectState: CookVisitorState<ObjectCooked> = spawnCookState(state, {
+    const objectState = spawnCookState<ObjectCooked>(state, {
       chainRef: state.chainRef,
     });
     callback(node.object, objectState);
@@ -420,12 +418,9 @@ export const CookVisitor = Object.freeze<
       return;
     }
 
-    const propertyState: CookVisitorState<PropertyCooked> = spawnCookState(
-      state,
-      {
-        identifierAsLiteralString: !node.computed,
-      }
-    );
+    const propertyState = spawnCookState<PropertyCooked>(state, {
+      identifierAsLiteralString: !node.computed,
+    });
     callback(node.property, propertyState);
 
     const propertyCooked = propertyState.cooked;
@@ -463,9 +458,9 @@ export const CookVisitor = Object.freeze<
   ) {
     const cookedEntries: PropertyEntryCooked[] = [];
     for (const prop of node.properties) {
-      const propState: CookVisitorState<
+      const propState = spawnCookState<
         PropertyEntryCooked | PropertyEntryCooked[]
-      > = spawnCookState(state, {
+      >(state, {
         spreadAsProperties: true,
       });
       callback(prop, propState);
@@ -505,12 +500,9 @@ export const CookVisitor = Object.freeze<
           })
         );
       } else {
-        const keyState: CookVisitorState<PropertyCooked> = spawnCookState(
-          state,
-          {
-            identifierAsLiteralString: true,
-          }
-        );
+        const keyState = spawnCookState<PropertyCooked>(state, {
+          identifierAsLiteralString: true,
+        });
         callback(prop.key, keyState);
         usedProps.add(keyState.cooked);
         callback(
@@ -533,7 +525,7 @@ export const CookVisitor = Object.freeze<
     state: CookVisitorState<PropertyEntryCooked>,
     callback
   ) {
-    const keyState: CookVisitorState<PropertyCooked> = spawnCookState(state, {
+    const keyState = spawnCookState<PropertyCooked>(state, {
       identifierAsLiteralString: !node.computed,
     });
     callback(node.key, keyState);
@@ -564,8 +556,7 @@ export const CookVisitor = Object.freeze<
     state.cooked = cooked;
   },
   TaggedTemplateExpression(node: TaggedTemplateExpression, state, callback) {
-    const tagState: CookVisitorState<(...args: unknown[]) => unknown> =
-      spawnCookState(state);
+    const tagState = spawnCookState<(...args: unknown[]) => unknown>(state);
     callback(node.tag, tagState);
     const tagCooked = tagState.cooked;
 
@@ -644,14 +635,16 @@ export const CookVisitor = Object.freeze<
         );
       }
 
-      const calleeState: CookVisitorState<new (...args: any[]) => any> =
-        spawnCookState(state);
+      const calleeState =
+        spawnCookState<new (...args: unknown[]) => unknown>(state);
       callback(node.callee, calleeState);
       const calleeCooked = calleeState.cooked;
 
       if (
         calleeCooked !==
-        (window as Record<string, any>)[(node.callee as Identifier).name]
+        (window as unknown as Record<string, unknown>)[
+          (node.callee as Identifier).name
+        ]
       ) {
         throw new TypeError(
           `Unsupported non-global constructor \`${
@@ -665,7 +658,7 @@ export const CookVisitor = Object.freeze<
 
       const cookedArgs = [];
       for (const arg of node.arguments) {
-        const argState = spawnCookState(state);
+        const argState = spawnCookState<unknown[]>(state);
         callback(arg, argState);
         if (arg.type === "SpreadElement") {
           cookedArgs.push(...argState.cooked);
@@ -684,14 +677,15 @@ export const CookVisitor = Object.freeze<
       );
     }
   },
-});
+} as ICookVisitor);
 
 // Ref https://github.com/tc39/proposal-global
 // In addition, the es6-shim had to switch from Function('return this')()
 // due to CSP concerns, such that the current check to handle browsers,
 // node, web workers, and frames is:
 // istanbul ignore next
-function getGlobal(): any {
+// eslint-disable-next-line @typescript-eslint/ban-types
+function getGlobal(): object {
   // the only reliable means to get the global object is
   // `Function('return this')()`
   // However, this causes CSP violations in Chrome apps.
@@ -725,8 +719,9 @@ const reservedObjects = new WeakSet([
   getGlobal(),
 ]);
 
-function sanitize(cooked: any): void {
-  if (reservedObjects.has(cooked)) {
+function sanitize(cooked: unknown): void {
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  if (reservedObjects.has(cooked as object)) {
     throw new TypeError("Cannot access reserved objects such as `Function`.");
   }
 }

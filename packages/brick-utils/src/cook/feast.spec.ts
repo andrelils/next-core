@@ -4,7 +4,7 @@ import { prefeast } from "./prefeast";
 jest.spyOn(console, "warn").mockImplementation(() => void 0);
 
 describe("feast", () => {
-  const getGlobalVariables = (): Record<string, any> => ({
+  const getGlobalVariables = (): Record<string, unknown> => ({
     DATA: {
       for: "good",
       null: null,

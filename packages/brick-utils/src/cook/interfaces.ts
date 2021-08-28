@@ -1,6 +1,6 @@
 import {
   Expression,
-  FunctionDeclaration,
+  FunctionExpression,
   Node,
   VariableDeclaration,
 } from "@babel/types";
@@ -35,14 +35,14 @@ export interface BasePreResult {
   source: string;
   attemptToVisitGlobals: Set<string>;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
-  globalScope: PrecookScope;
+  baseScope: PrecookScope;
 }
 
 export interface PrecookResult extends BasePreResult {
   expression: Expression;
 }
 
-export interface CookVisitorState<T = any> {
+export interface CookVisitorState<T = unknown> {
   source: string;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
   scopeStack?: CookScope[];
@@ -88,8 +88,8 @@ export interface CookUpdateData {
 }
 
 export type PropertyCooked = string | number;
-export type PropertyEntryCooked = [PropertyCooked, any];
-export type ObjectCooked = Record<PropertyCooked, any>;
+export type PropertyEntryCooked = [PropertyCooked, unknown];
+export type ObjectCooked = Record<PropertyCooked, unknown>;
 
 export type VisitorCallback<T> = (node: any, state: T) => void;
 
@@ -100,5 +100,17 @@ export type VisitorFn<T> = (
 ) => void;
 
 export interface PrefeastResult extends BasePreResult {
-  function: FunctionDeclaration;
+  function: FunctionExpression;
+}
+
+export interface ICookVisitor {
+  [key: string]: VisitorFn<CookVisitorState>;
+}
+
+export interface EstreeLiteral {
+  value: unknown;
+  raw: string;
+  regex?: {
+    flags: string;
+  };
 }

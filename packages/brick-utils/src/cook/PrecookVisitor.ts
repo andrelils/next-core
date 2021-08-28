@@ -22,10 +22,7 @@ import {
 } from "@babel/types";
 import { VisitorFn, PrecookVisitorState, ChainExpression } from "./interfaces";
 import { FLAG_FUNCTION, PrecookScope } from "./Scope";
-import {
-  addVariableToScopeStack,
-  spawnPrecookState /* , getScopes */,
-} from "./utils";
+import { addVariableToScopeStack, spawnPrecookState } from "./utils";
 
 export const PrecookVisitor = Object.freeze<
   Record<string, VisitorFn<PrecookVisitorState>>

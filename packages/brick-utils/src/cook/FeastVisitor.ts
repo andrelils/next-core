@@ -22,7 +22,12 @@ import {
   VariableDeclaration,
   WhileStatement,
 } from "@babel/types";
-import { CookVisitorState, VisitorCallback, VisitorFn } from "./interfaces";
+import {
+  CookVisitorState,
+  ICookVisitor,
+  VisitorCallback,
+  VisitorFn,
+} from "./interfaces";
 import { CookVisitor } from "./CookVisitor";
 import {
   assertIterable,
@@ -34,7 +39,7 @@ import {
 
 const ForOfStatementItemVisitor = (
   node: ForOfStatement | ForInStatement,
-  blockState: CookVisitorState,
+  blockState: CookVisitorState<void>,
   callback: VisitorCallback<CookVisitorState>,
   value: unknown
 ): void => {
@@ -58,7 +63,7 @@ const ForOfStatementVisitor: VisitorFn<CookVisitorState> = (
     controlFlow: {},
   });
 
-  const rightState = spawnCookState(blockState);
+  const rightState = spawnCookState<Iterable<unknown>>(blockState);
   callback(node.right, rightState);
 
   if (node.type === "ForOfStatement") {
@@ -164,9 +169,7 @@ const FunctionVisitor: VisitorFn<CookVisitorState> = (
   }
 };
 
-export const FeastVisitor = Object.freeze<
-  Record<string, VisitorFn<CookVisitorState>>
->({
+export const FeastVisitor = Object.freeze({
   ...CookVisitor,
   ArrowFunctionExpression: FunctionVisitor,
   AssignmentExpression(node: AssignmentExpression, state, callback) {
@@ -400,7 +403,7 @@ export const FeastVisitor = Object.freeze<
   },
   WhileStatement(node: WhileStatement, state, callback) {
     let testState: CookVisitorState;
-    const blockState = spawnCookState(state, {
+    const blockState = spawnCookState<void>(state, {
       controlFlow: {},
     });
     while (
@@ -416,7 +419,7 @@ export const FeastVisitor = Object.freeze<
   },
   DoWhileStatement(node: DoWhileStatement, state, callback) {
     let testState: CookVisitorState;
-    const blockState = spawnCookState(state, {
+    const blockState = spawnCookState<void>(state, {
       controlFlow: {},
     });
     do {
@@ -430,4 +433,4 @@ export const FeastVisitor = Object.freeze<
       testState.cooked)
     );
   },
-});
+} as ICookVisitor);

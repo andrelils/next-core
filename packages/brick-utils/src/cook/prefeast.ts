@@ -1,30 +1,28 @@
-import { parse } from "@babel/parser";
-import { FunctionDeclaration, Node } from "@babel/types";
+import { parseExpression } from "@babel/parser";
+import { FunctionExpression, Node } from "@babel/types";
 import {
   PrecookOptions,
   PrecookVisitorState,
   PrefeastResult,
 } from "./interfaces";
 import { PrefeastVisitor } from "./PrefeastVisitor";
-import { FLAG_GLOBAL, PrecookScope } from "./Scope";
+import { FLAG_BLOCK, PrecookScope } from "./Scope";
 import { walkFactory } from "./utils";
 
 export function prefeast(
   source: string,
   options?: PrecookOptions
 ): PrefeastResult {
-  const file = parse(source, {
+  const func = parseExpression(source, {
     plugins: ["estree"],
     strictMode: true,
-  });
-  const body = file.program.body;
-  if (body.length !== 1 || body[0].type !== "FunctionDeclaration") {
+  }) as FunctionExpression;
+  if (func.type !== "FunctionExpression") {
     throw new SyntaxError("Invalid function declaration");
   }
-  const func = body[0] as FunctionDeclaration;
-  const globalScope = new PrecookScope(FLAG_GLOBAL);
+  const baseScope = new PrecookScope(FLAG_BLOCK);
   const state: PrecookVisitorState = {
-    scopeStack: [globalScope],
+    scopeStack: [baseScope],
     attemptToVisitGlobals: new Set(),
     scopeMapByNode: new WeakMap(),
     isRoot: true,
@@ -42,12 +40,12 @@ export function prefeast(
         )}\``
       );
     }
-  )(body[0], state);
+  )(func, state);
   return {
     source,
     function: func,
     attemptToVisitGlobals: state.attemptToVisitGlobals,
     scopeMapByNode: state.scopeMapByNode,
-    globalScope,
+    baseScope,
   };
 }

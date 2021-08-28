@@ -10,7 +10,6 @@ import {
   CookScopeStackFactory,
   FLAG_BLOCK,
   FLAG_FUNCTION,
-  FLAG_GLOBAL,
   PrecookScope,
   VARIABLE_FLAG_CONST,
   VARIABLE_FLAG_FUNCTION,
@@ -21,10 +20,10 @@ import {
 
 export function walkFactory<T>(
   visitor: Record<string, VisitorFn<T>>,
-  catchUnsupportedNodeType: (node: any) => void
-): (node: any, state: T) => void {
+  catchUnsupportedNodeType: (node: Node) => void
+): (node: Node, state: T) => void {
   const warnedNodes = new WeakSet();
-  return function walk(node: any, state: T) {
+  return function walk(node: Node, state: T) {
     const nodeVisitor = visitor[node.type];
     if (nodeVisitor) {
       nodeVisitor(node, state, walk);
@@ -63,10 +62,10 @@ export function spawnPrecookStateOfBlock(
   });
 }
 
-export function spawnCookState(
+export function spawnCookState<T>(
   parentState: CookVisitorState,
-  extendsState?: Partial<CookVisitorState>
-): CookVisitorState {
+  extendsState?: Partial<CookVisitorState<T>>
+): CookVisitorState<T> {
   return {
     source: parentState.source,
     scopeMapByNode: parentState.scopeMapByNode,
@@ -80,16 +79,16 @@ export function spawnCookState(
 export function spawnCookStateOfBlock(
   node: Node,
   state: CookVisitorState,
-  extendsState?: Partial<CookVisitorState>
-): CookVisitorState {
+  extendsState?: Partial<CookVisitorState<void>>
+): CookVisitorState<void> {
   return lowerLevelSpawnCookStateOfBlock(node, state, extendsState).blockState;
 }
 
 export function lowerLevelSpawnCookStateOfBlock(
   node: Node,
   state: CookVisitorState,
-  extendsState?: Partial<CookVisitorState>
-): { blockState: CookVisitorState; precookScope: PrecookScope } {
+  extendsState?: Partial<CookVisitorState<void>>
+): { blockState: CookVisitorState<void>; precookScope: PrecookScope } {
   const precookScope = state.scopeMapByNode.get(node);
   const scopeStack = CookScopeStackFactory(state.scopeStack, precookScope);
   return {
@@ -115,10 +114,7 @@ export function addVariableToScopeStack(
     }
     case "let":
     case "const": {
-      const scope = findScopeByFlags(
-        scopeStack,
-        /* FLAG_GLOBAL | */ FLAG_FUNCTION | FLAG_BLOCK
-      );
+      const scope = findScopeByFlags(scopeStack, FLAG_FUNCTION | FLAG_BLOCK);
       scope.variables.add(name);
       scope.flagsMapByVariable.set(
         name,
@@ -127,23 +123,14 @@ export function addVariableToScopeStack(
       break;
     }
     case "functions": {
-      const scope = findScopeByFlags(
-        scopeStack,
-        FLAG_GLOBAL | FLAG_FUNCTION | FLAG_BLOCK
-      );
+      const scope = findScopeByFlags(scopeStack, FLAG_FUNCTION | FLAG_BLOCK);
       scope.variables.add(name);
-      const otherFlags =
-        scope.flags & FLAG_GLOBAL
-          ? VARIABLE_FLAG_CONST
-          : scope.flagsMapByVariable.get(name) ?? 0;
-      scope.flagsMapByVariable.set(name, otherFlags | VARIABLE_FLAG_FUNCTION);
+      const prevFlags = scope.flagsMapByVariable.get(name) ?? 0;
+      scope.flagsMapByVariable.set(name, prevFlags | VARIABLE_FLAG_FUNCTION);
       break;
     }
     case "var": {
-      const scope = findScopeByFlags(
-        scopeStack,
-        /* FLAG_GLOBAL | */ FLAG_FUNCTION
-      );
+      const scope = findScopeByFlags(scopeStack, FLAG_FUNCTION);
       scope.variables.add(name);
       const prevFlags = scope.flagsMapByVariable.get(name) ?? 0;
       scope.flagsMapByVariable.set(name, prevFlags | VARIABLE_FLAG_VAR);

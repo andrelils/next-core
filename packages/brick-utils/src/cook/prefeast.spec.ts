@@ -272,7 +272,7 @@ describe("prefeast", () => {
 
   it("should throw for invalid function declaration", () => {
     expect(() => {
-      prefeast("function test() {} test()");
+      prefeast("function test() {}, test()");
     }).toThrowErrorMatchingInlineSnapshot(`"Invalid function declaration"`);
   });
 });

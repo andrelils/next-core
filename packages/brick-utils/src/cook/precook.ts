@@ -2,16 +2,20 @@ import { Node } from "@babel/types";
 import { parseExpression } from "@babel/parser";
 import { walkFactory } from "./utils";
 import { PrecookVisitor } from "./PrecookVisitor";
-import { PrecookVisitorState, PrecookResult, PrecookOptions } from "./interfaces";
-import { FLAG_GLOBAL, PrecookScope } from "./Scope";
+import {
+  PrecookVisitorState,
+  PrecookResult,
+  PrecookOptions,
+} from "./interfaces";
+import { FLAG_BLOCK, PrecookScope } from "./Scope";
 
 export function precook(
   source: string,
   options?: PrecookOptions
 ): PrecookResult {
-  const globalScope = new PrecookScope(FLAG_GLOBAL);
+  const baseScope = new PrecookScope(FLAG_BLOCK);
   const state: PrecookVisitorState = {
-    scopeStack: [globalScope],
+    scopeStack: [baseScope],
     attemptToVisitGlobals: new Set(),
     scopeMapByNode: new WeakMap(),
   };
@@ -40,6 +44,6 @@ export function precook(
     expression,
     attemptToVisitGlobals: state.attemptToVisitGlobals,
     scopeMapByNode: state.scopeMapByNode,
-    globalScope,
+    baseScope,
   };
 }

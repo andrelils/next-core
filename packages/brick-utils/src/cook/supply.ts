@@ -1,7 +1,7 @@
 import lodash from "lodash";
 import moment from "moment";
 import { PipeRegistry } from "../placeholder/pipes";
-import { CookScope, FLAG_SANDBOX, VARIABLE_FLAG_CONST } from "./Scope";
+import { CookScope, FLAG_SANDBOX } from "./Scope";
 
 export function supply(
   attemptToVisitGlobals: Set<string>,
@@ -28,7 +28,6 @@ export function supply(
       cooked: value,
       const: true,
     });
-    // scope.flagsMapByVariable.set(key, VARIABLE_FLAG_CONST);
   }
 
   return scope;
