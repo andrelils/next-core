@@ -5,8 +5,12 @@ const consoleWarn = jest
   .mockImplementation(() => void 0);
 
 describe("precook", () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
   it.each<[string, string[]]>([
-    ["() => {}", []],
+    ["() => ({})", []],
     ["[, DATA]", ["DATA"]],
     ["'good'", []],
     ["1", []],
@@ -57,10 +61,12 @@ describe("precook", () => {
     ["a |> (_ => b(_, c)) |> d", ["a", "b", "c", "d"]],
     ["new Set([1, 2, 3])", ["Set"]],
     ["tag`a${b}c${d}e`", ["tag", "b", "d"]],
+    ["(b = (() => a + c), a) => b + d", ["c", "d"]],
   ])("precook(%j).attemptToVisitGlobals should be %j", (input, cooked) => {
     expect(Array.from(precook(input).attemptToVisitGlobals.values())).toEqual(
       cooked
     );
+    expect(consoleWarn).not.toBeCalled();
   });
 
   it("should warn unsupported type", () => {

@@ -1676,6 +1676,93 @@ describe("cookFunction", () => {
       },
     ],
     [
+      "parameter expression scope read",
+      {
+        source: `
+          function test() {
+            var x = 1;
+            var y = 2;
+            function inner(b = x + y) {
+              var y = 3;
+              return b;
+            }
+            return inner();
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 3,
+          },
+        ],
+      },
+    ],
+    [
+      "parameter expression scope write",
+      {
+        source: `
+          function test() {
+            var x = 1;
+            var y = 2;
+            function inner(x, b = (x = y)) {
+              var y = 3;
+              return b;
+            }
+            return x + ':' + inner();
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: "1:2",
+          },
+        ],
+      },
+    ],
+    [
+      "parameter expression scope read in function",
+      {
+        source: `
+          function test() {
+            var x = 1;
+            function inner(y, b = () => x + y) {
+              var y = 2;
+              return b();
+            }
+            return inner(3);
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: 4,
+          },
+        ],
+      },
+    ],
+    [
+      "parameter expression scope write in function",
+      {
+        source: `
+          function test() {
+            var y = 1;
+            function inner(b = () => (y=2)) {
+              var y;
+              b();
+              return y;
+            }
+            return inner() + ':' + y;
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: `undefined:2`,
+          },
+        ],
+      },
+    ],
+    [
       "[TypeScript]",
       {
         source: `

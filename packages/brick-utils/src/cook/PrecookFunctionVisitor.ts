@@ -132,6 +132,9 @@ export const PrecookFunctionVisitor = Object.freeze<
     callback(node.left, state);
   },
   BlockStatement(node: BlockStatement, state, callback) {
+    // const blockEnv = state.ctx.lexicalEnv.spawn();
+    // state.ctx.lexicalEnv = blockEnv;
+
     const bodyState = state.isFunctionBody
       ? spawnPrecookState(state)
       : spawnPrecookStateOfBlock(node, state);

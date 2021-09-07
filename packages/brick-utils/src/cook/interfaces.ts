@@ -2,14 +2,35 @@ import {
   Expression,
   FunctionDeclaration,
   Node,
+  ObjectProperty,
   UnaryExpression,
   VariableDeclaration,
 } from "@babel/types";
+import { ExecutionContext } from "./ExecutionContext";
 import { CookScope, PrecookScope } from "./Scope";
 
-export interface ChainExpression {
+export type EstreeNode =
+  | Node
+  | EstreeProperty
+  | EstreeChainExpression
+  | EstreeLiteral;
+
+export type EstreeProperty = Omit<ObjectProperty, "type"> & {
+  type: "Property";
+};
+
+export interface EstreeChainExpression {
   type: "ChainExpression";
   expression: Expression;
+}
+
+export interface EstreeLiteral {
+  type: "Literal";
+  value: unknown;
+  raw: string;
+  regex?: {
+    flags: string;
+  };
 }
 
 export interface PrecookOptions {
@@ -24,6 +45,7 @@ export interface PrecookVisitorState {
   scopeStack: PrecookScope[];
   attemptToVisitGlobals: Set<string>;
   scopeMapByNode: WeakMap<Node, PrecookScope>;
+  ctx?: ExecutionContext;
   isRoot?: boolean;
   identifierAsLiteralString?: boolean;
   collectVariableNamesAsKind?: ScopeVariableKind;
@@ -53,6 +75,7 @@ export interface CookVisitorState<T = unknown> {
   scopeStack: CookScope[];
   raiseError: FnRaiseError;
   cookingFunction?: boolean;
+  ctx?: ExecutionContext;
   isRoot?: boolean;
   identifierAsLiteralString?: boolean;
   spreadAsProperties?: boolean;
@@ -118,14 +141,6 @@ export interface PrecookFunctionResult extends BasePreResult {
 
 export interface ICookVisitor {
   [key: string]: VisitorFn<CookVisitorState>;
-}
-
-export interface EstreeLiteral {
-  value: unknown;
-  raw: string;
-  regex?: {
-    flags: string;
-  };
 }
 
 export interface CookFunctionOptions {

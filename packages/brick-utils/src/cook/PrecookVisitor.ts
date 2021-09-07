@@ -12,7 +12,6 @@ import {
   NewExpression,
   ObjectExpression,
   ObjectPattern,
-  ObjectProperty,
   RestElement,
   SequenceExpression,
   SpreadElement,
@@ -20,7 +19,12 @@ import {
   TemplateLiteral,
   UnaryExpression,
 } from "@babel/types";
-import { VisitorFn, PrecookVisitorState, ChainExpression } from "./interfaces";
+import {
+  VisitorFn,
+  PrecookVisitorState,
+  EstreeProperty,
+  EstreeChainExpression,
+} from "./interfaces";
 import { FLAG_FUNCTION, PrecookScope } from "./Scope";
 import { addVariableToScopeStack, spawnPrecookState } from "./utils";
 
@@ -84,7 +88,7 @@ export const PrecookVisitor = Object.freeze<
       callback(arg, state);
     }
   },
-  ChainExpression(node: ChainExpression, state, callback) {
+  ChainExpression(node: EstreeChainExpression, state, callback) {
     callback(node.expression, state);
   },
   ConditionalExpression(node: ConditionalExpression, state, callback) {
@@ -140,7 +144,7 @@ export const PrecookVisitor = Object.freeze<
       callback(prop, state);
     }
   },
-  Property(node: ObjectProperty, state, callback) {
+  Property(node: EstreeProperty, state, callback) {
     callback(
       node.key,
       spawnPrecookState(state, {

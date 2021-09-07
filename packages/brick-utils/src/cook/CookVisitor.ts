@@ -26,7 +26,7 @@ import {
   PropertyEntryCooked,
   ObjectCooked,
   PropertyCooked,
-  ChainExpression,
+  EstreeChainExpression,
   ICookVisitor,
   EstreeLiteral,
 } from "./interfaces";
@@ -269,7 +269,7 @@ export const CookVisitor = Object.freeze({
     // Sanitize the call result.
     sanitize(state.cooked);
   },
-  ChainExpression(node: ChainExpression, state, callback) {
+  ChainExpression(node: EstreeChainExpression, state, callback) {
     const chainState = spawnCookState(state, {
       chainRef: {},
     });
