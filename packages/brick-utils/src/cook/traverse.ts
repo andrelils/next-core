@@ -28,31 +28,31 @@ export function collectBoundNames(
       switch (node.type) {
         case "Identifier":
           names.add(node.name);
-          break;
+          return;
         case "VariableDeclaration":
           collect(node.declarations);
-          break;
+          return;
         case "VariableDeclarator":
           collect(node.id);
-          break;
+          return;
         case "ArrayPattern":
           collect(node.elements);
-          break;
+          return;
         case "AssignmentPattern":
           collect(node.left);
-          break;
+          return;
         case "ObjectPattern":
           collect(node.properties);
-          break;
+          return;
         case "Property":
           collect(node.value);
-          break;
+          return;
         case "RestElement":
           collect(node.argument);
-          break;
+          return;
         case "FunctionDeclaration":
           collect(node.id);
-          break;
+          return;
       }
     }
   };
@@ -117,52 +117,52 @@ export function collectScopedDeclarations(
           if (Number(!options.var) ^ Number(options.topLevel)) {
             declarations.push(node);
           }
-          break;
+          return;
         case "VariableDeclaration":
           if (Number(!options.var) ^ Number(node.kind === "var")) {
             collect(node.declarations, nextOptions);
           }
-          break;
+          return;
         case "VariableDeclarator":
           declarations.push(node);
-          break;
+          return;
         case "SwitchCase":
           collect(node.consequent, nextOptions);
-          break;
+          return;
         case "CatchClause":
           collect(node.body, nextOptions);
-          break;
+          return;
       }
       if (options.var) {
         switch (node.type) {
           case "BlockStatement":
             collect(node.body, nextOptions);
-            break;
+            return;
           case "IfStatement":
             collect(node.consequent, nextOptions);
             collect(node.alternate, nextOptions);
-            break;
+            return;
           case "DoWhileStatement":
           case "WhileStatement":
             collect(node.body, nextOptions);
-            break;
+            return;
           case "ForStatement":
             collect(node.init, nextOptions);
             collect(node.body, nextOptions);
-            break;
+            return;
           case "ForInStatement":
           case "ForOfStatement":
             collect(node.left, nextOptions);
             collect(node.body, nextOptions);
-            break;
+            return;
           case "SwitchStatement":
             collect(node.cases, nextOptions);
-            break;
+            return;
           case "TryStatement":
             collect(node.block, nextOptions);
             collect(node.handler, nextOptions);
             collect(node.finalizer, nextOptions);
-            break;
+            return;
         }
       }
     }

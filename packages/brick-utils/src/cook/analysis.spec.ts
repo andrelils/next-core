@@ -1,5 +1,5 @@
-import { parse, parseExpression } from "@babel/parser";
 import { analysis } from "./analysis";
+import { parseEstree, parseEstreeExpression } from "./parse";
 
 const consoleWarn = jest
   .spyOn(console, "warn")
@@ -64,10 +64,7 @@ describe("", () => {
     ["tag`a${b}c${d}e`", ["tag", "b", "d"]],
     ["(b = a, a = c) => b", ["c"]],
   ])("precook(%j).attemptToVisitGlobals should be %j", (source, result) => {
-    const expression = parseExpression(source, {
-      plugins: ["estree", ["pipelineOperator", { proposal: "minimal" }]],
-      strictMode: true,
-    });
+    const expression = parseEstreeExpression(source);
     expect(analysis(expression, { expressionOnly: true })).toEqual(result);
     expect(consoleWarn).not.toBeCalled();
   });
@@ -438,13 +435,43 @@ describe("", () => {
       `,
       ["error"],
     ],
+    [
+      "while statement",
+      `
+        function test(){
+          let x;
+          while (a + b + c + d + x) {
+            let a;
+            var b;
+            function c(){
+              return y;
+            }
+            break;
+          }
+        }
+      `,
+      ["a", "c", "d", "y"],
+    ],
+    [
+      "do-while statement",
+      `
+        function test(){
+          let x;
+          do {
+            let a;
+            var b;
+            function c(){
+              return y;
+            }
+            continue;
+          } while (a + b + c + d + x);
+        }
+      `,
+      ["y", "a", "c", "d"],
+    ],
   ])("%s", (desc, source, result) => {
-    const file = parse(source, {
-      plugins: ["estree", ["pipelineOperator", { proposal: "minimal" }]],
-      strictMode: true,
-    });
-    const func = file.program.body[0];
-    expect(analysis(func, { expressionOnly: false })).toEqual(result);
+    const func = parseEstree(source);
+    expect(analysis(func)).toEqual(result);
     expect(consoleWarn).not.toBeCalled();
   });
 });

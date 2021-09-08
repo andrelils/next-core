@@ -2,7 +2,9 @@ import {
   Expression,
   FunctionDeclaration,
   Node,
+  ObjectPattern,
   ObjectProperty,
+  RestElement,
   UnaryExpression,
   VariableDeclaration,
 } from "@babel/types";
@@ -11,9 +13,14 @@ import { CookScope, PrecookScope } from "./Scope";
 
 export type EstreeNode =
   | Node
+  | EstreeObjectPattern
   | EstreeProperty
   | EstreeChainExpression
   | EstreeLiteral;
+
+export type EstreeObjectPattern = Omit<ObjectPattern, "properties"> & {
+  properties: (EstreeProperty | RestElement)[];
+}
 
 export type EstreeProperty = Omit<ObjectProperty, "type"> & {
   type: "Property";

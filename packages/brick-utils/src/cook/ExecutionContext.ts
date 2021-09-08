@@ -1,72 +1,55 @@
 import { Expression, FunctionDeclaration, Statement } from "@babel/types";
 
-export class ExecutionContextStack {
-  private readonly stack: ExecutionContext[] = [];
-
-  getRunningContext(): ExecutionContext {
-    return this.stack[this.stack.length - 1];
-  }
-
-  push(context: ExecutionContext): void {
-    this.stack.push(context);
-  }
-
-  pop(): void {
-    this.stack.pop();
-  }
-}
-
 // https://tc39.es/ecma262/#sec-execution-contexts
 export class ExecutionContext {
-  variableEnv: EnvironmentRecord;
-  lexicalEnv: EnvironmentRecord;
-  privateEnv: PrivateEnvironmentRecord;
-
-  Function: unknown;
+  VariableEnvironment: EnvironmentRecord;
+  LexicalEnvironment: EnvironmentRecord;
+  Function: FunctionObject;
 }
 
 export type EnvironmentRecordType = "function" | "declarative";
 
 // https://tc39.es/ecma262/#sec-environment-records
 export class EnvironmentRecord {
-  readonly type: EnvironmentRecordType;
-  readonly outer: EnvironmentRecord;
+  readonly OuterEnv: EnvironmentRecord;
   private readonly bindingMap = new Map<string, BindingState>();
 
-  constructor(type: EnvironmentRecordType, outer: EnvironmentRecord) {
-    this.type = type;
-    this.outer = outer;
+  constructor(outer: EnvironmentRecord) {
+    this.OuterEnv = outer;
   }
 
   HasBinding(name: string): boolean {
     return this.bindingMap.has(name);
   }
 
-  CreateMutableBinding(name: string, deletable: boolean): void {
+  CreateMutableBinding(name: string, deletable: boolean): CompletionRecord {
     // Assert: binding does not exist.
     this.bindingMap.set(name, {
       mutable: true,
       deletable: deletable,
     });
+    return NormalCompletion(undefined);
   }
 
-  CreateImmutableBinding(name: string, strict: boolean): void {
+  CreateImmutableBinding(name: string, strict: boolean): CompletionRecord {
     // Assert: binding does not exist.
     this.bindingMap.set(name, {
       strict: strict,
     });
+    return NormalCompletion(undefined);
   }
 
-  InitializeBinding(name: string, value: unknown): void {
+  InitializeBinding(name: string, value: unknown): CompletionRecord {
     const binding = this.bindingMap.get(name);
     // Assert: binding exists and uninitialized.
     Object.assign<BindingState, Partial<BindingState>>(binding, {
       initialized: true,
       value,
     });
+    return NormalCompletion(undefined);
   }
 
-  SetMutableBinding(name: string, value: unknown, strict: boolean): void {
+  SetMutableBinding(name: string, value: unknown, strict: boolean): CompletionRecord {
     const binding = this.bindingMap.get(name);
     if (!binding) {
       if (strict) {
@@ -74,7 +57,7 @@ export class EnvironmentRecord {
       }
       this.CreateMutableBinding(name, true);
       this.InitializeBinding(name, value);
-      return;
+      return NormalCompletion(undefined);
     }
     if (binding.strict) {
       strict = true;
@@ -86,10 +69,14 @@ export class EnvironmentRecord {
     } else if (strict) {
       throw new TypeError(`Attempt to change an immutable binding`);
     }
+    return NormalCompletion(undefined);
   }
 
   GetBindingValue(name: string, strict: boolean): unknown {
     const binding = this.bindingMap.get(name);
+    if (strict && !binding) {
+      throw new ReferenceError();
+    }
     // Assert: binding exists.
     if (!binding.initialized) {
       throw new ReferenceError(`${name} is not initialized`);
@@ -97,7 +84,7 @@ export class EnvironmentRecord {
     return binding.value;
   }
 
-  DeleteBiding(name: string): boolean {
+  DeleteBinding(name: string): boolean {
     const binding = this.bindingMap.get(name);
     // Assert: binding exists.
     if (!binding.deletable) {
@@ -113,8 +100,9 @@ export class EnvironmentRecord {
   }
 }
 
-// https://tc39.es/ecma262/#sec-privateenvironment-records
-export class PrivateEnvironmentRecord {}
+export class DeclarativeEnvironment extends EnvironmentRecord {}
+
+export class FunctionEnvironment extends EnvironmentRecord {}
 
 export interface BindingState {
   initialized?: boolean;
@@ -124,9 +112,43 @@ export interface BindingState {
   value?: unknown;
 }
 
+export const FormalParameters = Symbol.for("FormalParameters");
+export const ECMAScriptCode = Symbol.for("ECMAScriptCode");
+export const Environment = Symbol.for("Environment");
+
 export interface FunctionObject {
-  FormalParameters?: FunctionDeclaration["params"];
-  ECMAScriptCode?: Statement[] | Expression;
-  Environment?: EnvironmentRecord;
-  PrivateEnvironment?: PrivateEnvironmentRecord;
+  (...args: unknown[]): unknown;
+  [FormalParameters]: FunctionDeclaration["params"];
+  [ECMAScriptCode]: Statement[] | Expression;
+  [Environment]: EnvironmentRecord;
+}
+
+export class ReferenceRecord {
+  readonly Base?: unknown | EnvironmentRecord | "unresolvable";
+  readonly ReferenceName?: string;
+  readonly Strict?: boolean;
+
+  constructor(base: unknown | EnvironmentRecord | "unresolvable", referenceName: string, strict: boolean) {
+    this.Base = base;
+    this.ReferenceName = referenceName;
+    this.Strict = strict;
+  }
+}
+
+export type CompletionRecordType = "normal" | "break" | "continue" | "return" | "throw";
+
+export class CompletionRecord {
+  readonly Type: CompletionRecordType;
+  readonly Value: unknown;
+
+  constructor(type: CompletionRecordType, value: unknown) {
+    this.Type = type;
+    this.Value = value;
+  }
+}
+
+export const Empty = Symbol("empty completion");
+
+export function NormalCompletion(value: unknown): CompletionRecord {
+  return new CompletionRecord("normal", value);
 }

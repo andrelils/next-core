@@ -205,7 +205,7 @@ function getNodeSource(node: Node, source: string): string {
   return source.substring(node.start, node.end);
 }
 
-function isIterable(cooked: unknown): boolean {
+export function isIterable(cooked: unknown): boolean {
   if (Array.isArray(cooked)) {
     return true;
   }
