@@ -266,7 +266,7 @@ export function analysis(
         }
       }
       // eslint-disable-next-line no-console
-      console.log(`Unsupported node type \`${node.type}\``);
+      console.warn(`Unsupported node type \`${node.type}\``);
     }
   }
 

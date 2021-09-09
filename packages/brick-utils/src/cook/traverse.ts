@@ -14,9 +14,7 @@ type InternalCollectWithOptions<T = void, O = unknown> = (
   options: O
 ) => T;
 
-export function collectBoundNames(
-  root: EstreeNode | EstreeNode[]
-): Set<string> {
+export function collectBoundNames(root: EstreeNode | EstreeNode[]): string[] {
   const names = new Set<string>();
   const collect: InternalCollect = (node) => {
     if (Array.isArray(node)) {
@@ -30,34 +28,26 @@ export function collectBoundNames(
           names.add(node.name);
           return;
         case "VariableDeclaration":
-          collect(node.declarations);
-          return;
+          return collect(node.declarations);
         case "VariableDeclarator":
-          collect(node.id);
-          return;
+          return collect(node.id);
         case "ArrayPattern":
-          collect(node.elements);
-          return;
+          return collect(node.elements);
         case "AssignmentPattern":
-          collect(node.left);
-          return;
+          return collect(node.left);
         case "ObjectPattern":
-          collect(node.properties);
-          return;
+          return collect(node.properties);
         case "Property":
-          collect(node.value);
-          return;
+          return collect(node.value);
         case "RestElement":
-          collect(node.argument);
-          return;
+          return collect(node.argument);
         case "FunctionDeclaration":
-          collect(node.id);
-          return;
+          return collect(node.id);
       }
     }
   };
   collect(root);
-  return names;
+  return Array.from(names);
 }
 
 export function containsExpression(root: EstreeNode | EstreeNode[]): boolean {

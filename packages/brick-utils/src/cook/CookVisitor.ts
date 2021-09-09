@@ -29,6 +29,7 @@ import {
   EstreeChainExpression,
   ICookVisitor,
   EstreeLiteral,
+  EstreeProperty,
 } from "./interfaces";
 import { CookScopeStackFactory } from "./Scope";
 import { assertIterable, spawnCookState } from "./utils";
@@ -504,10 +505,13 @@ export const CookVisitor = Object.freeze({
     // Should never reach here.
   },
   Property(
-    node: ObjectProperty,
+    node: EstreeProperty,
     state: CookVisitorState<PropertyEntryCooked>,
     callback
   ) {
+    if (node.kind !== "init") {
+      state.raiseError(SyntaxError, "Unsupported object getter/setter");
+    }
     const keyState = spawnCookState<PropertyCooked>(state, {
       identifierAsLiteralString: !node.computed,
     });

@@ -9,15 +9,27 @@ import {
   FunctionDeclaration,
   FunctionExpression,
   Identifier,
-  LVal,
   ObjectPattern,
   PatternLike,
   RestElement,
+  SpreadElement,
   Statement,
   SwitchCase,
   VariableDeclaration,
 } from "@babel/types";
-import { CreateListIteratorRecord, GetV, GetValue, InitializeReferencedBinding, LoopContinues, RequireObjectCoercible, ToObject, UpdateEmpty } from "./context-free";
+import {
+  CreateListIteratorRecord,
+  EvaluateBinaryExpression,
+  GetV,
+  GetValue,
+  InitializeReferencedBinding,
+  LoopContinues,
+  PutValue,
+  RequireObjectCoercible,
+  ToObject,
+  ToPropertyKey,
+  UpdateEmpty,
+} from "./context-free";
 import {
   CompletionRecord,
   DeclarativeEnvironment,
@@ -32,7 +44,13 @@ import {
   NormalCompletion,
   ReferenceRecord,
 } from "./ExecutionContext";
-import { EstreeNode, EstreeObjectPattern, EstreeProperty } from "./interfaces";
+import {
+  EstreeLVal,
+  EstreeNode,
+  EstreeObjectExpression,
+  EstreeObjectPattern,
+  EstreeProperty,
+} from "./interfaces";
 import {
   collectBoundNames,
   collectScopedDeclarations,
@@ -61,112 +79,165 @@ export function evaluate(
         const ref = ResolveBinding(node.name);
         return NormalCompletion(ref);
       }
-      case "ArrayExpression":
-      case "ArrayPattern":
-        return Evaluate(node.elements);
+      case "ArrayExpression": {
+        const array = [];
+        let nextIndex = 0;
+        for (const element of node.elements) {
+          if (element) {
+            const initValue = GetValue(Evaluate(element));
+            array[nextIndex] = initValue;
+            nextIndex++;
+          } else {
+            nextIndex++;
+            array.length = nextIndex;
+          }
+        }
+        return NormalCompletion(array);
+      }
       case "ArrowFunctionExpression": {
         const closure = InstantiateArrowFunctionExpression(node);
         return NormalCompletion(closure);
       }
-      case "AssignmentPattern":
+      // case "AssignmentPattern":
       case "BinaryExpression":
-      case "LogicalExpression":
-        Evaluate(node.left);
-        Evaluate(node.right);
-        return;
-      case "CallExpression":
-      case "NewExpression":
-        Evaluate(node.callee);
-        Evaluate(node.arguments);
-        return;
-      case "ChainExpression":
-        Evaluate(node.expression);
-        return;
+      case "LogicalExpression": {
+        const leftRef = Evaluate(node.left);
+        const leftValue = GetValue(leftRef);
+        if (
+          node.operator === "??" &&
+          (leftValue === null || leftValue === undefined)
+        ) {
+          const rightRef = Evaluate(node.right);
+          return NormalCompletion(GetValue(rightRef));
+        }
+        const rightRef = Evaluate(node.right);
+        const rightValue = GetValue(rightRef);
+        const result = EvaluateBinaryExpression(
+          node.operator,
+          leftValue as number,
+          rightValue as number
+        );
+        return NormalCompletion(result);
+      }
+      // case "CallExpression":
+      // case "NewExpression":
+      //   Evaluate(node.callee);
+      //   Evaluate(node.arguments);
+      //   return;
+      // case "ChainExpression":
+      //   Evaluate(node.expression);
+      //   return;
       case "ConditionalExpression":
-        Evaluate(node.test);
-        Evaluate(node.consequent);
-        Evaluate(node.alternate);
-        return;
-      case "MemberExpression":
-        Evaluate(node.object);
-        if (node.computed) {
-          Evaluate(node.property);
+        return NormalCompletion(
+          GetValue(
+            Evaluate(
+              GetValue(Evaluate(node.test)) ? node.consequent : node.alternate
+            )
+          )
+        );
+      // case "MemberExpression":
+      //   Evaluate(node.object);
+      //   if (node.computed) {
+      //     Evaluate(node.property);
+      //   }
+      //   return;
+      case "ObjectExpression": {
+        const object: Record<PropertyKey, unknown> = {};
+        for (const prop of (node as EstreeObjectExpression).properties) {
+          if (prop.type === "SpreadElement") {
+            const fromValue = GetValue(Evaluate(prop.argument));
+            CopyDataProperties(object, fromValue, []);
+          } else {
+            if (prop.kind !== "init") {
+              throw new SyntaxError("Unsupported object getter/setter");
+            }
+            // Todo: __proto__
+            const propName =
+              !prop.computed && prop.key.type === "Identifier"
+                ? (GetValue(Evaluate(prop.key)) as PropertyKey)
+                : EvaluatePropertyName(prop.key);
+            object[propName] = GetValue(Evaluate(prop.value));
+          }
         }
-        return;
-      case "ObjectExpression":
-      case "ObjectPattern":
-        Evaluate(node.properties);
-        return;
-      case "Property":
-        if (node.computed) {
-          Evaluate(node.key);
+        return NormalCompletion(object);
+      }
+      // case "Property":
+      //   if (node.computed) {
+      //     Evaluate(node.key);
+      //   }
+      //   Evaluate(node.value);
+      //   return;
+      // case "RestElement":
+      // case "SpreadElement":
+      // case "UnaryExpression":
+      //   Evaluate(node.argument);
+      //   return;
+      case "SequenceExpression": {
+        let result: CompletionRecord;
+        for (const expr of node.expressions) {
+          result = NormalCompletion(GetValue(Evaluate(expr)));
         }
-        Evaluate(node.value);
-        return;
-      case "RestElement":
-      case "SpreadElement":
-      case "UnaryExpression":
-        Evaluate(node.argument);
-        return;
-      case "SequenceExpression":
-      case "TemplateLiteral":
-        Evaluate(node.expressions);
-        return;
-      case "TaggedTemplateExpression":
-        Evaluate(node.tag);
-        Evaluate(node.quasi);
-        return;
+        return result;
+      }
+      // case "TemplateLiteral":
+      //   Evaluate(node.expressions);
+      //   return;
+      // case "TaggedTemplateExpression":
+      //   Evaluate(node.tag);
+      //   Evaluate(node.quasi);
+      //   return;
       case "Literal":
         return NormalCompletion(node.value);
     }
     if (!expressionOnly) {
       // Statements and assignments:
       switch (node.type) {
-        case "AssignmentExpression":
-          Evaluate(node.right);
-          Evaluate(node.left);
-          return;
+        // case "AssignmentExpression":
+        //   Evaluate(node.right);
+        //   Evaluate(node.left);
+        //   return;
         case "BlockStatement": {
           if (!node.body.length) {
-            return;
+            return NormalCompletion(Empty);
           }
           const oldEnv = getRunningContext().LexicalEnvironment;
           const blockEnv = new DeclarativeEnvironment(oldEnv);
           BlockDeclarationInstantiation(node.body, blockEnv);
           getRunningContext().LexicalEnvironment = blockEnv;
-          const blockValue = Evaluate(node.body);
+          const blockValue = EvaluateStatementList(node.body);
           getRunningContext().LexicalEnvironment = oldEnv;
           return blockValue;
         }
         case "BreakStatement":
+          return new CompletionRecord("break", Empty);
         case "ContinueStatement":
+          return new CompletionRecord("continue", Empty);
         case "EmptyStatement":
-          return;
-        case "CatchClause": {
-          const oldEnv = getRunningContext().LexicalEnvironment;
-          const catchEnv = new DeclarativeEnvironment(oldEnv);
-          for (const argName of collectBoundNames(node.param)) {
-            catchEnv.CreateMutableBinding(argName, false);
-          }
-          getRunningContext().LexicalEnvironment = catchEnv;
-          Evaluate(node.param);
-          Evaluate(node.body);
-          getRunningContext().LexicalEnvironment = oldEnv;
-          return;
-        }
-        case "DoWhileStatement":
-          Evaluate(node.body);
-          Evaluate(node.test);
-          return;
+          return NormalCompletion(Empty);
+        // case "CatchClause": {
+        //   const oldEnv = getRunningContext().LexicalEnvironment;
+        //   const catchEnv = new DeclarativeEnvironment(oldEnv);
+        //   for (const argName of collectBoundNames(node.param)) {
+        //     catchEnv.CreateMutableBinding(argName, false);
+        //   }
+        //   getRunningContext().LexicalEnvironment = catchEnv;
+        //   Evaluate(node.param);
+        //   Evaluate(node.body);
+        //   getRunningContext().LexicalEnvironment = oldEnv;
+        //   return;
+        // }
+        // case "DoWhileStatement":
+        //   Evaluate(node.body);
+        //   Evaluate(node.test);
+        //   return;
         case "ExpressionStatement":
         case "TSAsExpression":
-          Evaluate(node.expression);
-          return;
+          return Evaluate(node.expression);
         case "ForInStatement":
         case "ForOfStatement":
-          return ForInOfLoopEvaluation(node);
+          return EvaluateBreakableStatement(ForInOfLoopEvaluation(node));
         case "ForStatement":
-          return ForLoopEvaluation(node);
+          return EvaluateBreakableStatement(ForLoopEvaluation(node));
         case "FunctionDeclaration": {
           return NormalCompletion(Empty);
         }
@@ -174,11 +245,11 @@ export function evaluate(
           const closure = InstantiateOrdinaryFunctionExpression(node);
           return NormalCompletion(closure);
         }
-        case "IfStatement":
-          Evaluate(node.test);
-          Evaluate(node.consequent);
-          Evaluate(node.alternate);
-          return;
+        // case "IfStatement":
+        //   Evaluate(node.test);
+        //   Evaluate(node.consequent);
+        //   Evaluate(node.alternate);
+        //   return;
         case "ReturnStatement": {
           let v: unknown;
           if (node.argument) {
@@ -187,57 +258,124 @@ export function evaluate(
           }
           return new CompletionRecord("return", v);
         }
-        case "ThrowStatement":
-        case "UpdateExpression":
-          Evaluate(node.argument);
-          return;
-        case "SwitchCase":
-          Evaluate(node.test);
-          Evaluate(node.consequent);
-          return;
-        case "SwitchStatement": {
-          Evaluate(node.discriminant);
-          const runningContext = getRunningContext();
-          const oldEnv = runningContext.LexicalEnvironment;
-          const blockEnv = new DeclarativeEnvironment(oldEnv);
-          BlockDeclarationInstantiation(node.cases, blockEnv);
-          runningContext.LexicalEnvironment = blockEnv;
-          Evaluate(node.cases);
-          runningContext.LexicalEnvironment = oldEnv;
-          return;
+        // case "ThrowStatement":
+        // case "UpdateExpression":
+        //   Evaluate(node.argument);
+        //   return;
+        // case "SwitchCase":
+        //   Evaluate(node.test);
+        //   Evaluate(node.consequent);
+        //   return;
+        // case "SwitchStatement": {
+        //   Evaluate(node.discriminant);
+        //   const runningContext = getRunningContext();
+        //   const oldEnv = runningContext.LexicalEnvironment;
+        //   const blockEnv = new DeclarativeEnvironment(oldEnv);
+        //   BlockDeclarationInstantiation(node.cases, blockEnv);
+        //   runningContext.LexicalEnvironment = blockEnv;
+        //   Evaluate(node.cases);
+        //   runningContext.LexicalEnvironment = oldEnv;
+        //   return;
+        // }
+        // case "TryStatement":
+        //   Evaluate(node.block);
+        //   Evaluate(node.handler);
+        //   Evaluate(node.finalizer);
+        //   return;
+        case "VariableDeclaration": {
+          let result: CompletionRecord;
+          for (const declarator of node.declarations) {
+            if (!declarator.init) {
+              if (node.kind === "var") {
+                result = NormalCompletion(Empty);
+              } else if (declarator.id.type === "Identifier") {
+                const lhs = ResolveBinding(declarator.id.name);
+                result = InitializeReferencedBinding(lhs, undefined);
+              }
+            } else if (declarator.id.type === "Identifier") {
+              const bindingId = declarator.id.name;
+              const lhs = ResolveBinding(bindingId);
+              // Todo: IsAnonymousFunctionDefinition(Initializer)
+              const rhs = Evaluate(declarator.init);
+              const value = GetValue(rhs);
+              result =
+                node.kind === "var"
+                  ? PutValue(lhs, value)
+                  : InitializeReferencedBinding(lhs, value);
+            } else {
+              const rhs = Evaluate(declarator.init);
+              const rval = GetValue(rhs);
+              result = BindingInitialization(
+                declarator.id,
+                rval,
+                node.kind === "var"
+                  ? undefined
+                  : getRunningContext().LexicalEnvironment
+              );
+            }
+          }
+          return result;
         }
-        case "TryStatement":
-          Evaluate(node.block);
-          Evaluate(node.handler);
-          Evaluate(node.finalizer);
-          return;
-        case "VariableDeclaration":
-          Evaluate(node.declarations);
-          return;
-        case "VariableDeclarator":
-          Evaluate(node.id);
-          Evaluate(node.init);
-          return;
-        case "WhileStatement":
-          Evaluate(node.test);
-          Evaluate(node.body);
-          return;
+        // case "WhileStatement":
+        //   Evaluate(node.test);
+        //   Evaluate(node.body);
+        //   return;
       }
     }
     // eslint-disable-next-line no-console
-    console.log(`Unsupported node type \`${node.type}\``);
+    throw new SyntaxError(`Unsupported node type \`${node.type}\``);
   }
 
-  function ForInOfLoopEvaluation(node: ForInStatement | ForOfStatement): CompletionRecord {
-    // ForIn/OfHeadEvaluation
-    // ForIn/OfBodyEvaluation
+  function EvaluateBreakableStatement(
+    stmtResult: CompletionRecord
+  ): CompletionRecord {
+    return stmtResult.Type === "break"
+      ? stmtResult.Value === Empty
+        ? NormalCompletion(undefined)
+        : NormalCompletion(stmtResult.Value)
+      : stmtResult;
   }
 
-  function ForInOfHeadEvaluation(uninitializedBoundNames: string[], expr: VariableDeclaration | LVal, iterationKind: "enumerate" | "iterate"): CompletionRecord {
+  function ForInOfLoopEvaluation(
+    node: ForInStatement | ForOfStatement
+  ): CompletionRecord {
+    const lhs = node.left;
+    const isVariableDeclaration = lhs.type === "VariableDeclaration";
+    const lhsKind = isVariableDeclaration
+      ? lhs.kind === "var"
+        ? "varBinding"
+        : "lexicalBinding"
+      : "assignment";
+    const uninitializedBoundNames =
+      lhsKind === "lexicalBinding" ? collectBoundNames(lhs) : [];
+    const iterationKind =
+      node.type === "ForInStatement" ? "enumerate" : "iterate";
+    const keyResult = ForInOfHeadEvaluation(
+      uninitializedBoundNames,
+      node.right,
+      iterationKind
+    );
+    if (keyResult.Type !== "normal") {
+      // When enumerate, if the target is nil, a break completion will be returned.
+      return keyResult;
+    }
+    return ForInOfBodyEvaluation(
+      lhs,
+      node.body,
+      keyResult.Value as Iterator<unknown>,
+      iterationKind,
+      lhsKind
+    );
+  }
+
+  function ForInOfHeadEvaluation(
+    uninitializedBoundNames: string[],
+    expr: Expression,
+    iterationKind: "enumerate" | "iterate"
+  ): CompletionRecord {
     const runningContext = getRunningContext();
     const oldEnv = runningContext.LexicalEnvironment;
     if (uninitializedBoundNames.length > 0) {
-      const uninitializedBoundNames = collectBoundNames(expr);
       const newEnv = new DeclarativeEnvironment(oldEnv);
       for (const name of uninitializedBoundNames) {
         newEnv.CreateMutableBinding(name, false);
@@ -248,34 +386,54 @@ export function evaluate(
     runningContext.LexicalEnvironment = oldEnv;
     const exprValue = GetValue(exprRef);
     if (iterationKind === "enumerate") {
-      if(exprValue === null || exprValue === undefined) {
+      if (exprValue === null || exprValue === undefined) {
         return new CompletionRecord("break", Empty);
       }
-      // const obj = exprValue;
-      // const iterator =
-    } else {
-      const iterator = CreateListIteratorRecord(exprValue as Iterable<unknown>);
+      const iterator = EnumerateObjectProperties(exprValue);
       return NormalCompletion(iterator);
+    }
+    const iterator = CreateListIteratorRecord(exprValue as Iterable<unknown>);
+    return NormalCompletion(iterator);
+  }
+
+  function* EnumerateObjectProperties(value: any): Iterator<PropertyKey> {
+    for (const key in value) {
+      yield key;
     }
   }
 
-  function ForInOfBodyEvaluation(lhs: EstreeNode, stmt: EstreeNode, iteratorRecord: Iterator<unknown>, iterationKind: "enumerate" | "iterate", lhsKind: "varBinding" | "lexicalBinding" | "assignment"): CompletionRecord {
+  function ForInOfBodyEvaluation(
+    node: VariableDeclaration | EstreeLVal,
+    stmt: Statement,
+    iteratorRecord: Iterator<unknown>,
+    iterationKind: "enumerate" | "iterate",
+    lhsKind: "varBinding" | "lexicalBinding" | "assignment"
+  ): CompletionRecord {
+    const lhs =
+      lhsKind === "assignment"
+        ? (node as EstreeLVal)
+        : (node as VariableDeclaration).declarations[0].id;
     const oldEnv = getRunningContext().LexicalEnvironment;
     let V: unknown;
-    // Let destructuring be IsDestructuring of lhs.
-    const destructuring = lhs.type === "AssignmentPattern";
+    // When `destructuring` is false,
+    // For `node` whose `kind` is assignment:
+    //   `lhs` is an `Identifier` or a `MemberExpression`,
+    // Otherwise:
+    //   `lhs` is an `Identifier`.
+    const destructuring =
+      lhs.type === "ObjectPattern" || lhs.type === "ArrayPattern";
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const { done, value } = iteratorRecord.next();
+      const { done, value: nextValue } = iteratorRecord.next();
       if (done) {
         return NormalCompletion(V);
       }
-      let lhsRef: CompletionRecord | ReferenceRecord;
+      let lhsRef: ReferenceRecord;
       let iterationEnv: DeclarativeEnvironment;
       if (lhsKind === "lexicalBinding") {
         iterationEnv = new DeclarativeEnvironment(oldEnv);
         ForDeclarationBindingInstantiation(
-          lhs as VariableDeclaration,
+          node as VariableDeclaration,
           iterationEnv
         );
         getRunningContext().LexicalEnvironment = iterationEnv;
@@ -283,42 +441,19 @@ export function evaluate(
           const [lhsName] = collectBoundNames(lhs);
           lhsRef = ResolveBinding(lhsName);
         }
-      } else {
-        if (!destructuring) {
-          lhsRef = Evaluate(lhs);
-        }
+      } else if (!destructuring) {
+        lhsRef = Evaluate(lhs).Value as ReferenceRecord;
       }
-      let status: CompletionRecord;
-      if (!destructuring) {
-        if (lhsRef instanceof CompletionRecord && lhsRef.Type !== "normal") {
-          status = lhsRef;
-        } else {
-          if (lhsRef instanceof CompletionRecord) {
-            lhsRef = lhsRef.Value as ReferenceRecord;
-          }
-          if (lhsKind === "lexicalBinding") {
-            status = InitializeReferencedBinding(lhsRef, value);
-          } else {
-            status = PutValue(lhsRef, value);
-          }
-        }
-      } else {
-        if (lhsKind === "assignment") {
-          status = DestructuringAssignmentEvaluation(lhs, value);
-        } else if (lhsKind === "varBinding") {
-          status = BindingInitialization(lhs, value, undefined);
-        } else {
-          status = BindingInitialization(lhs, value, iterationEnv);
-        }
-      }
-      // If status is an abrupt completion, then
-      if (status.Type !== "normal") {
-        getRunningContext().LexicalEnvironment = oldEnv;
-        if (iterationKind === "enumerate") {
-          return status;
-        }
-        return status;
-      }
+      destructuring
+        ? lhsKind === "assignment"
+          ? DestructuringAssignmentEvaluation(lhs, nextValue)
+          : lhsKind === "varBinding"
+          ? BindingInitialization(lhs, nextValue, undefined)
+          : BindingInitialization(lhs, nextValue, iterationEnv)
+        : lhsKind === "lexicalBinding"
+        ? InitializeReferencedBinding(lhsRef, nextValue)
+        : PutValue(lhsRef, nextValue);
+
       const result = Evaluate(stmt);
       getRunningContext().LexicalEnvironment = oldEnv;
       if (!LoopContinues(result)) {
@@ -330,35 +465,174 @@ export function evaluate(
     }
   }
 
-  function DestructuringAssignmentEvaluation(pattern: ObjectPattern | ArrayPattern, value: unknown): CompletionRecord {
+  function DestructuringAssignmentEvaluation(
+    pattern: ObjectPattern | EstreeObjectPattern | ArrayPattern,
+    value: unknown
+  ): CompletionRecord {
     if (pattern.type === "ObjectPattern") {
       RequireObjectCoercible(value);
       if (pattern.properties.length > 0) {
-        PropertyDestructuringAssignmentEvaluation(pattern.properties, value);
+        PropertyDestructuringAssignmentEvaluation(
+          (pattern as EstreeObjectPattern).properties,
+          value
+        );
       }
       return NormalCompletion(Empty);
     }
     const iteratorRecord = CreateListIteratorRecord(value as Iterable<unknown>);
-    let status = IteratorDestructuringAssignmentEvaluation(pattern.elements, iteratorRecord);
+    return IteratorDestructuringAssignmentEvaluation(
+      pattern.elements,
+      iteratorRecord
+    );
   }
 
-  function IteratorDestructuringAssignmentEvaluation(elements: PatternLike[], iterator: Iterator<unknown): CompletionRecord {
+  function PropertyDestructuringAssignmentEvaluation(
+    properties: (EstreeProperty | RestElement)[],
+    value: unknown
+  ): CompletionRecord {
+    const excludedNames: PropertyKey[] = [];
+    for (const prop of properties) {
+      if (prop.type === "Property") {
+        if (!prop.computed && prop.key.type === "Identifier") {
+          const P = prop.key.name;
+          const lref = ResolveBinding(P);
+          let v = GetV(value, P);
+          if (prop.value.type === "AssignmentPattern" && v === undefined) {
+            // Todo(steve): check IsAnonymousFunctionDefinition(Initializer)
+            const defaultValue = Evaluate(prop.value.right);
+            v = GetValue(defaultValue);
+          }
+          PutValue(lref, v);
+          excludedNames.push(P);
+        } else {
+          const name = EvaluatePropertyName(prop.key);
+          KeyedDestructuringAssignmentEvaluation(prop.value, value, name);
+          excludedNames.push(name);
+        }
+      } else {
+        return RestDestructuringAssignmentEvaluation(
+          prop,
+          value,
+          excludedNames
+        );
+      }
+    }
+  }
 
+  function KeyedDestructuringAssignmentEvaluation(
+    node: EstreeNode,
+    value: unknown,
+    propertyName: PropertyKey
+  ): CompletionRecord {
+    const assignmentTarget =
+      node.type === "RestElement"
+        ? node.argument
+        : node.type === "AssignmentPattern"
+        ? node.left
+        : node;
+    const isObjectOrArray =
+      assignmentTarget.type === "ArrayPattern" ||
+      assignmentTarget.type === "ObjectPattern";
+    let lref;
+    if (!isObjectOrArray) {
+      lref = Evaluate(assignmentTarget).Value as ReferenceRecord;
+    }
+    const v = GetV(value, propertyName);
+    let rhsValue;
+    if (node.type === "AssignmentPattern" && v === undefined) {
+      // Todo(steve): check IsAnonymousFunctionDefinition(Initializer)
+      const defaultValue = Evaluate(node.right);
+      rhsValue = GetValue(defaultValue);
+    } else {
+      rhsValue = v;
+    }
+    if (isObjectOrArray) {
+      return DestructuringAssignmentEvaluation(assignmentTarget, rhsValue);
+    }
+    return PutValue(lref, rhsValue);
+  }
+
+  function RestDestructuringAssignmentEvaluation(
+    restProperty: RestElement,
+    value: unknown,
+    excludedNames: PropertyKey[]
+  ): CompletionRecord {
+    const lref = Evaluate(restProperty.argument).Value as ReferenceRecord;
+    const restObj = CopyDataProperties({}, value, excludedNames);
+    return PutValue(lref, restObj);
+  }
+
+  function IteratorDestructuringAssignmentEvaluation(
+    elements: PatternLike[],
+    iteratorRecord: Iterator<unknown>
+  ): CompletionRecord {
+    let status = NormalCompletion(Empty);
+    for (const element of elements) {
+      if (!element) {
+        iteratorRecord.next();
+        status = NormalCompletion(Empty);
+        continue;
+      }
+      const assignmentTarget =
+        element.type === "RestElement"
+          ? element.argument
+          : element.type === "AssignmentPattern"
+          ? element.left
+          : element;
+      const isObjectOrArray =
+        assignmentTarget.type === "ArrayPattern" ||
+        assignmentTarget.type === "ObjectPattern";
+      let lref: ReferenceRecord;
+      if (!isObjectOrArray) {
+        lref = Evaluate(assignmentTarget).Value as ReferenceRecord;
+      }
+      let v: unknown;
+      if (element.type !== "RestElement") {
+        const { done, value: nextValue } = iteratorRecord.next();
+        const value = done ? undefined : nextValue;
+        if (element.type === "AssignmentPattern" && value === undefined) {
+          // Todo(steve): check IsAnonymousFunctionDefinition(Initializer)
+          const defaultValue = Evaluate(element.right);
+          v = GetValue(defaultValue);
+        } else {
+          v = value;
+        }
+      } else {
+        // RestElement
+        v = [];
+        let n = 0;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value: nextValue } = iteratorRecord.next();
+          if (done) {
+            break;
+          }
+          (v as unknown[])[n] = nextValue;
+          n++;
+        }
+      }
+      if (isObjectOrArray) {
+        status = DestructuringAssignmentEvaluation(assignmentTarget, v);
+      } else {
+        status = PutValue(lref, v);
+      }
+    }
+    return status;
   }
 
   // https://tc39.es/ecma262/#sec-runtime-semantics-forloopevaluation
-  function ForLoopEvaluation(stmt: ForStatement): CompletionRecord {
-    if (stmt.init?.type === "VariableDeclaration") {
+  function ForLoopEvaluation(node: ForStatement): CompletionRecord {
+    if (node.init?.type === "VariableDeclaration") {
       // `for (var … ; … ; … ) …`
-      if (stmt.init.kind === "var") {
-        Evaluate(stmt.init);
-        return ForBodyEvaluation(stmt.test, stmt.update, stmt.body, []);
+      if (node.init.kind === "var") {
+        Evaluate(node.init);
+        return ForBodyEvaluation(node.test, node.update, node.body, []);
       }
       // `for (let/const … ; … ; … ) …`
       const oldEnv = getRunningContext().LexicalEnvironment;
       const loopEnv = new DeclarativeEnvironment(oldEnv);
-      const isConst = stmt.init.kind === "const";
-      const boundNames = collectBoundNames(stmt.init);
+      const isConst = node.init.kind === "const";
+      const boundNames = collectBoundNames(node.init);
       for (const dn of boundNames) {
         if (isConst) {
           loopEnv.CreateImmutableBinding(dn, true);
@@ -367,27 +641,23 @@ export function evaluate(
         }
       }
       getRunningContext().LexicalEnvironment = loopEnv;
-      const forDcl = Evaluate(stmt.init) as CompletionRecord;
-      if (forDcl.Type !== "normal") {
-        getRunningContext().LexicalEnvironment = oldEnv;
-        return { ...forDcl };
-      }
+      Evaluate(node.init);
       const perIterationLets = isConst ? [] : Array.from(boundNames);
       const bodyResult = ForBodyEvaluation(
-        stmt.test,
-        stmt.update,
-        stmt.body,
+        node.test,
+        node.update,
+        node.body,
         perIterationLets
       );
       getRunningContext().LexicalEnvironment = oldEnv;
       return bodyResult;
     }
     // `for ( … ; … ; … ) …`
-    if (stmt.init) {
-      const exprRef = Evaluate(stmt.init);
+    if (node.init) {
+      const exprRef = Evaluate(node.init);
       GetValue(exprRef);
     }
-    return ForBodyEvaluation(stmt.test, stmt.update, stmt.body, []);
+    return ForBodyEvaluation(node.test, node.update, node.body, []);
   }
 
   function ForBodyEvaluation(
@@ -453,11 +723,13 @@ export function evaluate(
     }
   }
 
-  function ResolveBinding(name: string, env?: EnvironmentRecord): ReferenceRecord {
+  function ResolveBinding(
+    name: string,
+    env?: EnvironmentRecord
+  ): ReferenceRecord {
     if (!env) {
       env = getRunningContext().LexicalEnvironment;
     }
-    // ReturnIfAbrupt
     return GetIdentifierReference(env, name, true);
   }
 
@@ -469,11 +741,9 @@ export function evaluate(
     if (!env) {
       return new ReferenceRecord("unresolvable", name, strict);
     }
-    // ReturnIfAbrupt
     if (env.HasBinding(name)) {
       return new ReferenceRecord(env, name, strict);
     }
-    // ReturnIfAbrupt
     return GetIdentifierReference(env.OuterEnv, name, strict);
   }
 
@@ -507,14 +777,16 @@ export function evaluate(
     }
   }
 
-  function CallFunction(closure: FunctionObject, args: Iterable<unknown>): unknown {
+  function CallFunction(
+    closure: FunctionObject,
+    args: Iterable<unknown>
+  ): unknown {
     PrepareOrdinaryCall(closure);
     const result = OrdinaryCallEvaluateBody(closure, args);
     executionContextStack.pop();
     if (result.Type === "return") {
       return result.Value;
     }
-    // ReturnIfAbrupt(result)
     return undefined;
   }
 
@@ -625,7 +897,7 @@ export function evaluate(
           instantiatedVarNames.push(n);
           varEnv.CreateMutableBinding(n, false);
           let initialValue: unknown;
-          if (!parameterNames.has(n) || functionNames.includes(n)) {
+          if (!parameterNames.includes(n) || functionNames.includes(n)) {
             //
           } else {
             initialValue = env.GetBindingValue(n, false);
@@ -661,109 +933,176 @@ export function evaluate(
     }
   }
 
-  function IteratorBindingInitialization(node: EstreeNode | EstreeNode[], iterator: Iterator<unknown>, environment: EnvironmentRecord): CompletionRecord {
-    if (Array.isArray(node)) {
-      for (const n of node) {
-        IteratorBindingInitialization(n, iterator, environment);
-      }
-    } else if (node) {
-      // `node` maybe `null` in some cases.
-      switch (node.type) {
-        case "AssignmentPattern": {
-          let v: unknown;
-          const { done, value } = iterator.next();
-          if (!done) {
-            v = value;
-          }
-          if (v === undefined) {
-            const defaultValue = Evaluate(node.right);
-            // ReturnIfAbrupt
-            v = GetValue(defaultValue);
-          }
-          return BindingInitialization(node.left, v, environment);
-        }
-        case "Identifier": {
-          const bindingId = node.name;
-          // ReturnIfAbrupt
-          const lhs = ResolveBinding(bindingId, environment);
-          let v: unknown;
-          const { done, value } = iterator.next();
-          if (!done) {
-            v = value;
-          }
-          return InitializeReferencedBinding(lhs, v);
-        }
-        case "RestElement": {
+  function IteratorBindingInitialization(
+    elements: PatternLike[],
+    iteratorRecord: Iterator<unknown>,
+    environment: EnvironmentRecord
+  ): CompletionRecord {
+    if (elements.length === 0) {
+      return NormalCompletion(Empty);
+    }
+    let result;
+    for (const node of elements) {
+      if (!node) {
+        // Elision element.
+        iteratorRecord.next();
+        result = NormalCompletion(Empty);
+      } else if (node.type === "RestElement") {
+        // Rest element.
+        if (node.argument.type === "Identifier") {
+          const lhs = ResolveBinding(node.argument.name, environment);
           const A: unknown[] = [];
           let n = 0;
           // eslint-disable-next-line no-constant-condition
           while (true) {
-            const { done, value } = iterator.next();
+            const { done, value } = iteratorRecord.next();
             if (done) {
-              return BindingInitialization(node.argument, A, environment);
+              result = environment
+                ? InitializeReferencedBinding(lhs, A)
+                : PutValue(lhs, A);
+              break;
             }
             A[n] = value;
-            n ++;
+            n++;
+          }
+        } else {
+          const A: unknown[] = [];
+          let n = 0;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const { done, value } = iteratorRecord.next();
+            if (done) {
+              result = BindingInitialization(node.argument, A, environment);
+              break;
+            }
+            A[n] = value;
+            n++;
+          }
+        }
+      } else {
+        // Normal element.
+        const bindingElement =
+          node.type === "AssignmentPattern" ? node.left : node;
+        switch (bindingElement.type) {
+          case "ObjectPattern":
+          case "ArrayPattern": {
+            let v: unknown;
+            const { done, value } = iteratorRecord.next();
+            if (!done) {
+              v = value;
+            }
+            if (node.type === "AssignmentPattern" && v === undefined) {
+              const defaultValue = Evaluate(node.right);
+              v = GetValue(defaultValue);
+            }
+            result = BindingInitialization(bindingElement, v, environment);
+            break;
+          }
+          case "Identifier": {
+            const bindingId = bindingElement.name;
+            const lhs = ResolveBinding(bindingId, environment);
+            let v: unknown;
+            const { done, value } = iteratorRecord.next();
+            if (!done) {
+              v = value;
+            }
+            if (node.type === "AssignmentPattern" && v === undefined) {
+              // IsAnonymousFunctionDefinition(Initializer)
+              const defaultValue = Evaluate(node.right);
+              v = GetValue(defaultValue);
+            }
+            result = environment
+              ? InitializeReferencedBinding(lhs, v)
+              : PutValue(lhs, v);
+            break;
           }
         }
       }
     }
+    return result;
   }
 
-  function BindingInitialization(node: EstreeNode, value: unknown, environment: EnvironmentRecord): CompletionRecord {
+  function BindingInitialization(
+    node: EstreeLVal,
+    value: unknown,
+    environment: EnvironmentRecord
+  ): CompletionRecord {
     switch (node.type) {
       case "Identifier":
         return InitializeBoundName(node.name, value, environment);
       case "ObjectPattern":
-        // ReturnIfAbrupt
         RequireObjectCoercible(value);
-        return PropertyBindingInitialization((node as EstreeObjectPattern).properties, value, environment);
+        return PropertyBindingInitialization(
+          (node as EstreeObjectPattern).properties,
+          value,
+          environment
+        );
       case "ArrayPattern": {
-        const iteratorRecord = CreateListIteratorRecord(value as Iterable<unknown>);
-        return IteratorBindingInitialization(node, iteratorRecord, environment);
+        const iteratorRecord = CreateListIteratorRecord(
+          value as Iterable<unknown>
+        );
+        return IteratorBindingInitialization(
+          node.elements,
+          iteratorRecord,
+          environment
+        );
       }
     }
   }
 
-  function PropertyBindingInitialization(properties: (EstreeProperty | RestElement)[], value: unknown, environment: EnvironmentRecord): CompletionRecord {
-    const excludedNames: (PropertyKey)[] = [];
+  function PropertyBindingInitialization(
+    properties: (EstreeProperty | RestElement)[],
+    value: unknown,
+    environment: EnvironmentRecord
+  ): CompletionRecord {
+    const excludedNames: PropertyKey[] = [];
     for (const prop of properties) {
-      if (prop.type === "Property") {
-        if (!prop.computed && prop.key.type === "Identifier") {
-          KeyedBindingInitialization(prop.key, value, environment, prop.key.name);
-        } else {
-          const P = EvaluatePropertyName(prop.key);
-          // ReturnIfAbrupt(P)
-          // ReturnIfAbrupt
-          KeyedBindingInitialization(prop.value, value, environment, P);
-          excludedNames.push(P);
-        }
+      if (prop.type === "RestElement") {
+        return RestBindingInitialization(
+          prop,
+          value,
+          environment,
+          excludedNames
+        );
+      }
+      if (!prop.computed && prop.key.type === "Identifier") {
+        KeyedBindingInitialization(
+          prop.value as EstreeLVal,
+          value,
+          environment,
+          prop.key.name
+        );
+        excludedNames.push(prop.key.name);
       } else {
-        return RestBindingInitialization(prop, value, environment, excludedNames);
+        const P = EvaluatePropertyName(prop.key);
+        KeyedBindingInitialization(
+          prop.value as EstreeLVal,
+          value,
+          environment,
+          P
+        );
+        excludedNames.push(P);
       }
     }
     return NormalCompletion(Empty);
   }
 
-  function EvaluatePropertyName(node: Expression): string | symbol {
+  function EvaluatePropertyName(node: Expression): PropertyKey {
     const exprValue = Evaluate(node);
-    // ReturnIfAbrupt
     const propName = GetValue(exprValue);
-    // ReturnIfAbrupt
     return ToPropertyKey(propName);
   }
 
-  function ToPropertyKey(arg: unknown): string | symbol {
-    if (typeof arg === "symbol") {
-      return arg;
-    }
-    return String(arg);
-  }
-
-  function RestBindingInitialization(restProperty: RestElement, value: unknown, environment: EnvironmentRecord, excludedNames: (PropertyKey)[]): CompletionRecord {
-    // ReturnIfAbrupt
-    const lhs = ResolveBinding((restProperty.argument as Identifier).name, environment);
-    // ReturnIfAbrupt
+  function RestBindingInitialization(
+    restProperty: RestElement,
+    value: unknown,
+    environment: EnvironmentRecord,
+    excludedNames: PropertyKey[]
+  ): CompletionRecord {
+    const lhs = ResolveBinding(
+      (restProperty.argument as Identifier).name,
+      environment
+    );
     const restObj = CopyDataProperties({}, value, excludedNames);
     if (!environment) {
       return PutValue(lhs, restObj);
@@ -771,12 +1110,18 @@ export function evaluate(
     return InitializeReferencedBinding(lhs, restObj);
   }
 
-  function CopyDataProperties ( target: Record<PropertyKey, unknown>, source: unknown, excludedItems: (PropertyKey)[] ): Record<PropertyKey, unknown> {
+  function CopyDataProperties(
+    target: Record<PropertyKey, unknown>,
+    source: unknown,
+    excludedItems: PropertyKey[]
+  ): Record<PropertyKey, unknown> {
     if (source === undefined || source === null) {
       return target;
     }
     const from = ToObject(source);
-    const keys = (Object.getOwnPropertyNames(from) as (PropertyKey)[]).concat(Object.getOwnPropertySymbols(from));
+    const keys = (Object.getOwnPropertyNames(from) as PropertyKey[]).concat(
+      Object.getOwnPropertySymbols(from)
+    );
     for (const nextKey of keys) {
       if (!excludedItems.includes(nextKey)) {
         const desc = Object.getOwnPropertyDescriptor(from, nextKey);
@@ -788,64 +1133,54 @@ export function evaluate(
     return target;
   }
 
-  function KeyedBindingInitialization(node: EstreeNode, value: unknown, environment: EnvironmentRecord, propertyName: string | symbol): CompletionRecord {
-    const isIdentifier = node.type === "Identifier" || (node.type === "AssignmentPattern" && node.left.type === "Identifier");
+  function KeyedBindingInitialization(
+    node: EstreeLVal,
+    value: unknown,
+    environment: EnvironmentRecord,
+    propertyName: PropertyKey
+  ): CompletionRecord {
+    const isIdentifier =
+      node.type === "Identifier" ||
+      (node.type === "AssignmentPattern" && node.left.type === "Identifier");
     if (isIdentifier) {
-      const bindingId = node.type === "Identifier" ? node.name : (node.left as Identifier).name;
-      // ReturnIfAbrupt
+      const bindingId =
+        node.type === "Identifier" ? node.name : (node.left as Identifier).name;
       const lhs = ResolveBinding(bindingId, environment);
-      // ReturnIfAbrupt
       let v = GetV(value, propertyName);
       if (node.type === "AssignmentPattern" && v === undefined) {
         // If IsAnonymousFunctionDefinition(Initializer)
         const defaultValue = Evaluate(node.right);
-        // ReturnIfAbrupt
         v = GetValue(defaultValue);
       }
       if (!environment) {
-        // ReturnIfAbrupt
         return PutValue(lhs, v);
       }
       return InitializeReferencedBinding(lhs, v);
     }
 
-    // ReturnIfAbrupt
     let v = GetV(value, propertyName);
     if (node.type === "AssignmentPattern" && v === undefined) {
       const defaultValue = Evaluate(node.right);
-      // ReturnIfAbrupt
       v = GetValue(defaultValue);
     }
-    return BindingInitialization(node.type === "AssignmentPattern" ? node.left : node, v, environment);
+    return BindingInitialization(
+      node.type === "AssignmentPattern" ? node.left : node,
+      v,
+      environment
+    );
   }
 
-  function InitializeBoundName(name: string, value: unknown, environment?: EnvironmentRecord): CompletionRecord {
+  function InitializeBoundName(
+    name: string,
+    value: unknown,
+    environment?: EnvironmentRecord
+  ): CompletionRecord {
     if (environment) {
       environment.InitializeBinding(name, value);
       return NormalCompletion(Empty);
     }
     const lhs = ResolveBinding(name);
-    // ReturnIfAbrupt
     return PutValue(lhs, value);
-  }
-
-  function PutValue(V: ReferenceRecord, W: unknown): CompletionRecord {
-    // ReturnIfAbrupt(V).
-    // ReturnIfAbrupt(W).
-    if (!(V instanceof ReferenceRecord)) {
-      throw new  ReferenceError();
-    }
-    if (V.Base === "unresolvable") {
-      throw new ReferenceError();
-    }
-    if (V.Base instanceof EnvironmentRecord) {
-      return V.Base.SetMutableBinding(V.ReferenceName, W, V.Strict);
-    }
-    // IsPropertyReference
-    // ReturnIfAbrupt
-    const baseObj = ToObject(V.Base);
-    baseObj[V.ReferenceName] = W;
-    return NormalCompletion(undefined);
   }
 
   function InstantiateFunctionObject(
@@ -898,10 +1233,10 @@ export function evaluate(
     body: BlockStatement | Expression,
     scope: EnvironmentRecord
   ): FunctionObject {
-    const F = (function(){
+    const F = function () {
       // eslint-disable-next-line prefer-rest-params
       return CallFunction(F, arguments);
-    }) as FunctionObject;
+    } as FunctionObject;
     Object.defineProperties(F, {
       [FormalParameters]: {
         enumerable: false,

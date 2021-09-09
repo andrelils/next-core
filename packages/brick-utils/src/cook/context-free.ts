@@ -1,5 +1,28 @@
-import { CompletionRecord, Empty, EnvironmentRecord, ReferenceRecord } from "./ExecutionContext";
+import { BinaryExpression, LogicalExpression, PatternLike } from "@babel/types";
+import { SimpleFunction } from "@next-core/brick-types";
+import {
+  CompletionRecord,
+  Empty,
+  EnvironmentRecord,
+  NormalCompletion,
+  ReferenceRecord,
+} from "./ExecutionContext";
 import { isIterable } from "./utils";
+
+export function DestructuringAssignmentTargetIsObjectOrArray(
+  element: PatternLike
+): boolean {
+  const assignmentTarget =
+    element.type === "RestElement"
+      ? element.argument
+      : element.type === "AssignmentPattern"
+      ? element.left
+      : element;
+  return (
+    assignmentTarget.type === "ArrayPattern" ||
+    assignmentTarget.type === "ObjectPattern"
+  );
+}
 
 export function LoopContinues(completion: CompletionRecord): boolean {
   return completion.Type === "normal" || completion.Type == "continue";
@@ -62,23 +85,52 @@ export function ToObject(arg: unknown): Record<PropertyKey, unknown> {
   return arg as Record<PropertyKey, unknown>;
 }
 
-export function GetV(V: unknown, P: string | symbol): unknown {
+export function ToPropertyKey(arg: unknown): string | symbol {
+  if (typeof arg === "symbol") {
+    return arg;
+  }
+  return String(arg);
+}
+
+export function GetV(V: unknown, P: PropertyKey): unknown {
   // ReturnIfAbrupt
   const O = ToObject(V);
   // ReturnIfAbrupt
   return O[P];
 }
 
-export function CreateListIteratorRecord(args: Iterable<unknown>): Iterator<unknown> {
+export function PutValue(V: ReferenceRecord, W: unknown): CompletionRecord {
+  // ReturnIfAbrupt(V).
+  // ReturnIfAbrupt(W).
+  if (!(V instanceof ReferenceRecord)) {
+    throw new ReferenceError();
+  }
+  if (V.Base === "unresolvable") {
+    throw new ReferenceError();
+  }
+  if (V.Base instanceof EnvironmentRecord) {
+    return V.Base.SetMutableBinding(V.ReferenceName, W, V.Strict);
+  }
+  // IsPropertyReference
+  // ReturnIfAbrupt
+  const baseObj = ToObject(V.Base);
+  baseObj[V.ReferenceName] = W;
+  return NormalCompletion(undefined);
+}
+
+export function CreateListIteratorRecord(
+  args: Iterable<unknown>
+): Iterator<unknown> {
   if (!isIterable(args)) {
-    throw new TypeError(
-      `${typeof args} is not iterable`
-    );
+    throw new TypeError(`${typeof args} is not iterable`);
   }
   return args[Symbol.iterator]();
 }
 
-export function InitializeReferencedBinding(V: ReferenceRecord, W: unknown): CompletionRecord {
+export function InitializeReferencedBinding(
+  V: ReferenceRecord,
+  W: unknown
+): CompletionRecord {
   // ReturnIfAbrupt(V).
   // ReturnIfAbrupt(W).
   const base = V.Base as EnvironmentRecord;
@@ -88,6 +140,50 @@ export function InitializeReferencedBinding(V: ReferenceRecord, W: unknown): Com
 export function RequireObjectCoercible(arg: unknown): void {
   if (arg === null || arg === undefined) {
     throw new TypeError();
+  }
+}
+
+export function EvaluateBinaryExpression(
+  operator: (BinaryExpression | LogicalExpression)["operator"] | "|>",
+  leftValue: number,
+  rightValue: number
+): unknown {
+  switch (operator) {
+    case "+":
+      return NormalCompletion(leftValue + rightValue);
+    case "-":
+      return NormalCompletion(leftValue + rightValue);
+    case "/":
+      return NormalCompletion(leftValue / rightValue);
+    case "%":
+      return NormalCompletion(leftValue % rightValue);
+    case "*":
+      return NormalCompletion(leftValue * rightValue);
+    case "**":
+      return NormalCompletion(leftValue ** rightValue);
+    case "==":
+      return NormalCompletion(leftValue == rightValue);
+    case "===":
+      return NormalCompletion(leftValue === rightValue);
+    case "!=":
+      return NormalCompletion(leftValue != rightValue);
+    case "!==":
+      return NormalCompletion(leftValue !== rightValue);
+    case ">":
+      return NormalCompletion(leftValue > rightValue);
+    case "<":
+      return NormalCompletion(leftValue < rightValue);
+    case ">=":
+      return NormalCompletion(leftValue >= rightValue);
+    case "<=":
+      return NormalCompletion(leftValue <= rightValue);
+    case "|>":
+      if ((typeof rightValue as unknown) !== "function") {
+        throw new TypeError();
+      }
+      return NormalCompletion(
+        (rightValue as unknown as SimpleFunction)(leftValue)
+      );
   }
 }
 

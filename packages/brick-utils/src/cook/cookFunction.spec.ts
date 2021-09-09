@@ -1763,6 +1763,27 @@ describe("cookFunction", () => {
       },
     ],
     [
+      "iterator destructuring assignment",
+      {
+        source: `
+          function test() {
+            const x = { a: 0 };
+            let y, z, size;
+            const v = [1, 2, 3, 4];
+            [x.b, ...[y, ...z]] = v;
+            [, x.a, ...{ length: size }] = v;
+            return { x, y, z, size };
+          }
+        `,
+        cases: [
+          {
+            args: [],
+            result: { x: { a: 2, b: 1 }, y: 2, z: [3, 4], size: 2 },
+          },
+        ],
+      },
+    ],
+    [
       "[TypeScript]",
       {
         source: `
