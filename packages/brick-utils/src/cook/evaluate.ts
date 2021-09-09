@@ -2,6 +2,7 @@ import {
   ArrayPattern,
   ArrowFunctionExpression,
   BlockStatement,
+  CallExpression,
   Expression,
   ForInStatement,
   ForOfStatement,
@@ -9,20 +10,22 @@ import {
   FunctionDeclaration,
   FunctionExpression,
   Identifier,
+  NewExpression,
   ObjectPattern,
   PatternLike,
   RestElement,
-  SpreadElement,
   Statement,
   SwitchCase,
   VariableDeclaration,
 } from "@babel/types";
 import {
+  ApplyStringOrNumericAssignment,
   CreateListIteratorRecord,
-  EvaluateBinaryExpression,
+  ApplyStringOrNumericBinaryOperator,
   GetV,
   GetValue,
   InitializeReferencedBinding,
+  IsPropertyReference,
   LoopContinues,
   PutValue,
   RequireObjectCoercible,
@@ -62,6 +65,24 @@ export function evaluate(
   root: FunctionDeclaration | ArrowFunctionExpression
 ): FunctionObject {
   const expressionOnly = root.type === "ArrowFunctionExpression";
+
+  const ThrowIfFunctionIsInvalid = (
+    func: FunctionDeclaration | FunctionExpression | ArrowFunctionExpression
+  ): void => {
+    if (func.async || func.generator) {
+      throw new SyntaxError(
+        `${func.async ? "Async" : "Generator"} function is not allowed`
+      );
+    }
+    if (expressionOnly && !(func as ArrowFunctionExpression).expression) {
+      throw new SyntaxError(
+        "Only an `Expression` is allowed in `ArrowFunctionExpression`'s body"
+      );
+    }
+  };
+
+  ThrowIfFunctionIsInvalid(root);
+
   const rootEnv = new DeclarativeEnvironment(null);
   const rootContext = new ExecutionContext();
   rootContext.VariableEnvironment = rootEnv;
@@ -95,6 +116,7 @@ export function evaluate(
         return NormalCompletion(array);
       }
       case "ArrowFunctionExpression": {
+        ThrowIfFunctionIsInvalid(node);
         const closure = InstantiateArrowFunctionExpression(node);
         return NormalCompletion(closure);
       }
@@ -112,15 +134,20 @@ export function evaluate(
         }
         const rightRef = Evaluate(node.right);
         const rightValue = GetValue(rightRef);
-        const result = EvaluateBinaryExpression(
-          node.operator,
+        const result = ApplyStringOrNumericBinaryOperator(
           leftValue as number,
+          node.operator,
           rightValue as number
         );
         return NormalCompletion(result);
       }
-      // case "CallExpression":
-      // case "NewExpression":
+      case "CallExpression": {
+        const ref = Evaluate(node.callee).Value;
+        const func = GetValue(ref) as FunctionObject;
+        return EvaluateCall(func, ref, node.arguments);
+      }
+      case "NewExpression":
+        return EvaluateNew(node.callee, node.arguments);
       //   Evaluate(node.callee);
       //   Evaluate(node.arguments);
       //   return;
@@ -135,12 +162,23 @@ export function evaluate(
             )
           )
         );
-      // case "MemberExpression":
-      //   Evaluate(node.object);
-      //   if (node.computed) {
-      //     Evaluate(node.property);
-      //   }
-      //   return;
+      case "MemberExpression": {
+        const baseReference = Evaluate(node.object);
+        const baseValue = GetValue(baseReference);
+        return NormalCompletion(
+          node.computed
+            ? EvaluatePropertyAccessWithExpressionKey(
+                baseValue,
+                node.property as Expression,
+                true
+              )
+            : EvaluatePropertyAccessWithIdentifierKey(
+                baseValue,
+                node.property as Identifier,
+                true
+              )
+        );
+      }
       case "ObjectExpression": {
         const object: Record<PropertyKey, unknown> = {};
         for (const prop of (node as EstreeObjectExpression).properties) {
@@ -192,7 +230,37 @@ export function evaluate(
     if (!expressionOnly) {
       // Statements and assignments:
       switch (node.type) {
-        // case "AssignmentExpression":
+        case "AssignmentExpression": {
+          if (node.operator === "=") {
+            if (
+              !(
+                node.left.type === "ArrayPattern" ||
+                node.left.type === "ObjectPattern"
+              )
+            ) {
+              const lref = Evaluate(node.left).Value as ReferenceRecord;
+              // If IsAnonymousFunctionDefinition(AssignmentExpression) and IsIdentifierRef of LeftHandSideExpression are both true, then
+              // Else
+              const rref = Evaluate(node.right);
+              const rval = GetValue(rref);
+
+              PutValue(lref, rval);
+              return NormalCompletion(rval);
+            }
+            const rref = Evaluate(node.right);
+            const rval = GetValue(rref) as string | number;
+            DestructuringAssignmentEvaluation(node.left, rval);
+            return NormalCompletion(rval);
+          } else {
+            const lref = Evaluate(node.left).Value as ReferenceRecord;
+            const lval = GetValue(lref) as string | number;
+            const rref = Evaluate(node.right);
+            const rval = GetValue(rref) as string | number;
+            const r = ApplyStringOrNumericAssignment(lval, node.operator, rval);
+            PutValue(lref, r);
+            return NormalCompletion(r);
+          }
+        }
         //   Evaluate(node.right);
         //   Evaluate(node.left);
         //   return;
@@ -242,14 +310,16 @@ export function evaluate(
           return NormalCompletion(Empty);
         }
         case "FunctionExpression": {
+          ThrowIfFunctionIsInvalid(node);
           const closure = InstantiateOrdinaryFunctionExpression(node);
           return NormalCompletion(closure);
         }
-        // case "IfStatement":
-        //   Evaluate(node.test);
-        //   Evaluate(node.consequent);
-        //   Evaluate(node.alternate);
-        //   return;
+        case "IfStatement":
+          return GetValue(Evaluate(node.test))
+            ? UpdateEmpty(Evaluate(node.consequent), undefined)
+            : node.alternate
+            ? UpdateEmpty(Evaluate(node.alternate), undefined)
+            : NormalCompletion(undefined);
         case "ReturnStatement": {
           let v: unknown;
           if (node.argument) {
@@ -262,21 +332,19 @@ export function evaluate(
         // case "UpdateExpression":
         //   Evaluate(node.argument);
         //   return;
-        // case "SwitchCase":
-        //   Evaluate(node.test);
-        //   Evaluate(node.consequent);
-        //   return;
-        // case "SwitchStatement": {
-        //   Evaluate(node.discriminant);
-        //   const runningContext = getRunningContext();
-        //   const oldEnv = runningContext.LexicalEnvironment;
-        //   const blockEnv = new DeclarativeEnvironment(oldEnv);
-        //   BlockDeclarationInstantiation(node.cases, blockEnv);
-        //   runningContext.LexicalEnvironment = blockEnv;
-        //   Evaluate(node.cases);
-        //   runningContext.LexicalEnvironment = oldEnv;
-        //   return;
-        // }
+        case "SwitchCase":
+          return EvaluateStatementList(node.consequent);
+        case "SwitchStatement": {
+          const exprRef = Evaluate(node.discriminant);
+          const switchValue = GetValue(exprRef);
+          const oldEnv = getRunningContext().LexicalEnvironment;
+          const blockEnv = new DeclarativeEnvironment(oldEnv);
+          BlockDeclarationInstantiation(node.cases, blockEnv);
+          getRunningContext().LexicalEnvironment = blockEnv;
+          const R = CaseBlockEvaluation(node.cases, switchValue);
+          getRunningContext().LexicalEnvironment = oldEnv;
+          return EvaluateBreakableStatement(R);
+        }
         // case "TryStatement":
         //   Evaluate(node.block);
         //   Evaluate(node.handler);
@@ -324,6 +392,147 @@ export function evaluate(
     }
     // eslint-disable-next-line no-console
     throw new SyntaxError(`Unsupported node type \`${node.type}\``);
+  }
+
+  function CaseBlockEvaluation(
+    cases: SwitchCase[],
+    input: unknown
+  ): CompletionRecord {
+    let V: unknown;
+
+    const defaultCaseIndex = cases.findIndex((switchCase) => !switchCase.test);
+    const hasDefaultCase = defaultCaseIndex >= 0;
+    const A = hasDefaultCase ? cases.slice(0, defaultCaseIndex) : cases;
+    let found = false;
+    for (const C of A) {
+      if (!found) {
+        found = CaseClauseIsSelected(C, input);
+      }
+      if (found) {
+        const R = Evaluate(C);
+        if (R.Value !== Empty) {
+          V = R.Value;
+        }
+        if (R.Type !== "normal") {
+          return UpdateEmpty(R, V);
+        }
+      }
+    }
+
+    if (!hasDefaultCase) {
+      return NormalCompletion(V);
+    }
+
+    let foundInB = false;
+    const B = cases.slice(defaultCaseIndex + 1);
+    if (!found) {
+      for (const C of B) {
+        if (!foundInB) {
+          foundInB = CaseClauseIsSelected(C, input);
+        }
+        if (foundInB) {
+          const R = Evaluate(C);
+          if (R.Value !== Empty) {
+            V = R.Value;
+          }
+          if (R.Type !== "normal") {
+            return UpdateEmpty(R, V);
+          }
+        }
+      }
+    }
+
+    if (foundInB) {
+      return NormalCompletion(V);
+    }
+    const R = Evaluate(cases[defaultCaseIndex]);
+    if (R.Value !== Empty) {
+      V = R.Value;
+    }
+    if (R.Type !== "normal") {
+      return UpdateEmpty(R, V);
+    }
+
+    // 14. NOTE: The following is another complete iteration of the second CaseClauses.
+    for (const C of B) {
+      const R = Evaluate(C);
+      if (R.Value !== Empty) {
+        V = R.Value;
+      }
+      if (R.Type !== "normal") {
+        return UpdateEmpty(R, V);
+      }
+    }
+    return NormalCompletion(V);
+  }
+
+  function CaseClauseIsSelected(C: SwitchCase, input: unknown): boolean {
+    const clauseSelector = GetValue(Evaluate(C.test));
+    return input === clauseSelector;
+  }
+
+  function EvaluatePropertyAccessWithExpressionKey(
+    baseValue: unknown,
+    expression: Expression,
+    strict: boolean
+  ): ReferenceRecord {
+    const propertyNameReference = Evaluate(expression);
+    const propertyNameValue = GetValue(propertyNameReference);
+    const propertyKey = ToPropertyKey(propertyNameValue);
+    return new ReferenceRecord(baseValue, propertyKey, strict);
+  }
+
+  function EvaluatePropertyAccessWithIdentifierKey(
+    baseValue: unknown,
+    identifierName: Identifier,
+    strict: boolean
+  ): ReferenceRecord {
+    const propertyNameString = identifierName.name;
+    return new ReferenceRecord(baseValue, propertyNameString, strict);
+  }
+
+  function EvaluateCall(
+    func: FunctionObject,
+    ref: ReferenceRecord,
+    args: CallExpression["arguments"]
+  ): CompletionRecord {
+    let thisValue;
+    if (ref instanceof ReferenceRecord) {
+      if (IsPropertyReference(ref)) {
+        thisValue = ref.Base;
+      } else {
+        throw new TypeError();
+      }
+    }
+    const argList = ArgumentListEvaluation(args);
+    if (typeof func !== "function") {
+      throw new TypeError();
+    }
+    return NormalCompletion(func.apply(thisValue, argList));
+  }
+
+  function EvaluateNew(
+    constructExpr: CallExpression["callee"],
+    args: NewExpression["arguments"]
+  ): CompletionRecord {
+    const ref = Evaluate(constructExpr);
+    const constructor = GetValue(ref) as new (...args: unknown[]) => unknown;
+    const argList = ArgumentListEvaluation(args);
+    return NormalCompletion(new constructor(...argList));
+  }
+
+  function ArgumentListEvaluation(
+    args: CallExpression["arguments"]
+  ): unknown[] {
+    const array: unknown[] = [];
+    for (const arg of args) {
+      if (arg.type === "SpreadElement") {
+        array.push(...(GetValue(Evaluate(arg)) as unknown[]));
+      } else {
+        array.push(GetValue(Evaluate(arg)));
+      }
+    }
+    return array;
   }
 
   function EvaluateBreakableStatement(
@@ -854,6 +1063,7 @@ export function evaluate(
     for (let i = varDeclarations.length - 1; i >= 0; i--) {
       const d = varDeclarations[i];
       if (d.type === "FunctionDeclaration") {
+        ThrowIfFunctionIsInvalid(d);
         const [fn] = collectBoundNames(d);
         if (!functionNames.includes(fn)) {
           functionNames.unshift(fn);
@@ -1258,6 +1468,11 @@ export function evaluate(
   }
 
   if (expressionOnly) {
+    if (!root.expression) {
+      throw new SyntaxError(
+        "Only an `Expression` is allowed in `ArrowFunctionExpression`'s body"
+      );
+    }
     return InstantiateArrowFunctionExpression(root);
   } else {
     const [fn] = collectBoundNames(root);

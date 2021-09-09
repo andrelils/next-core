@@ -187,28 +187,24 @@ export function analysis(
             runningContext.LexicalEnvironment = oldEnv;
             return;
           }
-          case "ForStatement":
-            if (
+          case "ForStatement": {
+            const lexicalBinding =
               node.init?.type === "VariableDeclaration" &&
-              node.init.kind !== "var"
-            ) {
-              const runningContext = getRunningContext();
-              const oldEnv = runningContext.LexicalEnvironment;
+              node.init.kind !== "var";
+            const runningContext = getRunningContext();
+            const oldEnv = runningContext.LexicalEnvironment;
+            if (lexicalBinding) {
               const loopEnv = new AnalysisEnvironment(oldEnv);
               BoundNamesInstantiation(node.init, loopEnv);
               runningContext.LexicalEnvironment = loopEnv;
-              Evaluate(node.init);
-              Evaluate(node.test);
-              Evaluate(node.body);
-              Evaluate(node.update);
-              runningContext.LexicalEnvironment = oldEnv;
-            } else {
-              Evaluate(node.init);
-              Evaluate(node.test);
-              Evaluate(node.body);
-              Evaluate(node.update);
             }
+            Evaluate(node.init);
+            Evaluate(node.test);
+            Evaluate(node.body);
+            Evaluate(node.update);
+            runningContext.LexicalEnvironment = oldEnv;
             return;
+          }
           case "FunctionDeclaration": {
             const [fn] = collectBoundNames(node);
             const env = getRunningContext().LexicalEnvironment;
@@ -286,7 +282,7 @@ export function analysis(
     analysisContextStack.pop();
   }
 
-  function ResolveBinding(name: string): unknown {
+  function ResolveBinding(name: string): boolean {
     const env = getRunningContext().LexicalEnvironment;
     return GetIdentifierReference(env, name);
   }
@@ -294,11 +290,11 @@ export function analysis(
   function GetIdentifierReference(
     env: AnalysisEnvironment,
     name: string
-  ): unknown {
-    if (!env) {
-      return false;
-    }
-    return env.HasBinding(name) || GetIdentifierReference(env.OuterEnv, name);
+  ): boolean {
+    return (
+      !!env &&
+      (env.HasBinding(name) || GetIdentifierReference(env.OuterEnv, name))
+    );
   }
 
   function BlockDeclarationInstantiation(
@@ -370,16 +366,13 @@ export function analysis(
     functionExpression: FunctionExpression
   ): AnalysisFunctionObject {
     const scope = getRunningContext().LexicalEnvironment;
-    if (functionExpression.id) {
-      const name = functionExpression.id.name;
-      const funcEnv = new AnalysisEnvironment(scope);
-      funcEnv.CreateBinding(name);
-      const closure = OrdinaryFunctionCreate(functionExpression, funcEnv);
-      return closure;
-    } else {
-      const closure = OrdinaryFunctionCreate(functionExpression, scope);
-      return closure;
+    if (!functionExpression.id) {
+      return OrdinaryFunctionCreate(functionExpression, scope);
     }
+    const name = functionExpression.id.name;
+    const funcEnv = new AnalysisEnvironment(scope);
+    funcEnv.CreateBinding(name);
+    return OrdinaryFunctionCreate(functionExpression, funcEnv);
   }
 
   function OrdinaryFunctionCreate(

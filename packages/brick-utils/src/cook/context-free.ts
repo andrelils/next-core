@@ -1,5 +1,6 @@
 import { BinaryExpression, LogicalExpression, PatternLike } from "@babel/types";
 import { SimpleFunction } from "@next-core/brick-types";
+import { right } from "inquirer/lib/utils/readline";
 import {
   CompletionRecord,
   Empty,
@@ -8,6 +9,10 @@ import {
   ReferenceRecord,
 } from "./ExecutionContext";
 import { isIterable } from "./utils";
+
+export function IsPropertyReference(V: ReferenceRecord): boolean {
+  return V.Base !== "unresolvable" && !(V.Base instanceof EnvironmentRecord);
+}
 
 export function DestructuringAssignmentTargetIsObjectOrArray(
   element: PatternLike
@@ -40,7 +45,6 @@ export function UpdateEmpty(
 
 // https://tc39.es/ecma262/#sec-getvalue
 export function GetValue(V: unknown): unknown {
-  // ReturnIfAbrupt(V)
   if (V instanceof CompletionRecord) {
     if (V.Type === "normal") {
       V = V.Value;
@@ -56,22 +60,12 @@ export function GetValue(V: unknown): unknown {
   }
   if (V.Base instanceof EnvironmentRecord) {
     const base = V.Base as EnvironmentRecord;
-    // ReturnIfAbrupt
-    const result = base.GetBindingValue(V.ReferenceName, V.Strict);
-    if (result instanceof CompletionRecord) {
-      if (result.Type === "normal") {
-        return result.Value;
-      } else {
-        return result;
-      }
-    }
-    return result;
+    return base.GetBindingValue(V.ReferenceName as string, V.Strict);
   } else {
     // NOTE
     // The object that may be created in step 4.a is not accessible outside of the above abstract operation
     // and the ordinary object [[Get]] internal method. An implementation might choose to avoid the actual
     // creation of the object.
-    // ReturnIfAbrupt
     const baseObj = ToObject(V.Base);
     return baseObj[V.ReferenceName];
   }
@@ -93,15 +87,11 @@ export function ToPropertyKey(arg: unknown): string | symbol {
 }
 
 export function GetV(V: unknown, P: PropertyKey): unknown {
-  // ReturnIfAbrupt
   const O = ToObject(V);
-  // ReturnIfAbrupt
   return O[P];
 }
 
 export function PutValue(V: ReferenceRecord, W: unknown): CompletionRecord {
-  // ReturnIfAbrupt(V).
-  // ReturnIfAbrupt(W).
   if (!(V instanceof ReferenceRecord)) {
     throw new ReferenceError();
   }
@@ -109,10 +99,9 @@ export function PutValue(V: ReferenceRecord, W: unknown): CompletionRecord {
     throw new ReferenceError();
   }
   if (V.Base instanceof EnvironmentRecord) {
-    return V.Base.SetMutableBinding(V.ReferenceName, W, V.Strict);
+    return V.Base.SetMutableBinding(V.ReferenceName as string, W, V.Strict);
   }
   // IsPropertyReference
-  // ReturnIfAbrupt
   const baseObj = ToObject(V.Base);
   baseObj[V.ReferenceName] = W;
   return NormalCompletion(undefined);
@@ -131,10 +120,8 @@ export function InitializeReferencedBinding(
   V: ReferenceRecord,
   W: unknown
 ): CompletionRecord {
-  // ReturnIfAbrupt(V).
-  // ReturnIfAbrupt(W).
   const base = V.Base as EnvironmentRecord;
-  return base.InitializeBinding(V.ReferenceName, W);
+  return base.InitializeBinding(V.ReferenceName as string, W);
 }
 
 export function RequireObjectCoercible(arg: unknown): void {
@@ -143,71 +130,67 @@ export function RequireObjectCoercible(arg: unknown): void {
   }
 }
 
-export function EvaluateBinaryExpression(
-  operator: (BinaryExpression | LogicalExpression)["operator"] | "|>",
+export function ApplyStringOrNumericBinaryOperator(
   leftValue: number,
+  operator: (BinaryExpression | LogicalExpression)["operator"] | "|>",
   rightValue: number
 ): unknown {
   switch (operator) {
     case "+":
-      return NormalCompletion(leftValue + rightValue);
+      return leftValue + rightValue;
     case "-":
-      return NormalCompletion(leftValue + rightValue);
+      return leftValue + rightValue;
     case "/":
-      return NormalCompletion(leftValue / rightValue);
+      return leftValue / rightValue;
     case "%":
-      return NormalCompletion(leftValue % rightValue);
+      return leftValue % rightValue;
     case "*":
-      return NormalCompletion(leftValue * rightValue);
+      return leftValue * rightValue;
     case "**":
-      return NormalCompletion(leftValue ** rightValue);
+      return leftValue ** rightValue;
     case "==":
-      return NormalCompletion(leftValue == rightValue);
+      return leftValue == rightValue;
     case "===":
-      return NormalCompletion(leftValue === rightValue);
+      return leftValue === rightValue;
     case "!=":
-      return NormalCompletion(leftValue != rightValue);
+      return leftValue != rightValue;
     case "!==":
-      return NormalCompletion(leftValue !== rightValue);
+      return leftValue !== rightValue;
     case ">":
-      return NormalCompletion(leftValue > rightValue);
+      return leftValue > rightValue;
     case "<":
-      return NormalCompletion(leftValue < rightValue);
+      return leftValue < rightValue;
     case ">=":
-      return NormalCompletion(leftValue >= rightValue);
+      return leftValue >= rightValue;
     case "<=":
-      return NormalCompletion(leftValue <= rightValue);
+      return leftValue <= rightValue;
     case "|>":
       if ((typeof rightValue as unknown) !== "function") {
         throw new TypeError();
       }
-      return NormalCompletion(
-        (rightValue as unknown as SimpleFunction)(leftValue)
-      );
+      return (rightValue as unknown as SimpleFunction)(leftValue);
   }
+  throw new SyntaxError(`Unsupported binary operator \`${operator}\``);
 }
 
-// const { shouldReturn, abruptRecord, value } = ReturnIfAbrupt(arg);
-// if (shouldReturn) {
-//   return abruptRecord;
-// }
-// arg = value;
-function ReturnIfAbrupt(arg: unknown):
-  | {
-      shouldReturn: true;
-      abruptRecord: CompletionRecord;
-      value?: undefined;
-    }
-  | {
-      shouldReturn?: false;
-      abruptRecord?: undefined;
-      value: unknown;
-    } {
-  if (arg instanceof CompletionRecord) {
-    if (arg.Type === "normal") {
-      return { value: arg.Value };
-    }
-    return { shouldReturn: true, abruptRecord: arg };
+export function ApplyStringOrNumericAssignment(
+  leftValue: string | number,
+  operator: string,
+  rightValue: string | number
+): unknown {
+  switch (operator) {
+    case "+=":
+    case "-=":
+    case "*=":
+    case "/=":
+    case "%=":
+    case "**=":
+      return ApplyStringOrNumericBinaryOperator(
+        leftValue as number,
+        operator.substr(0, operator.length - 1) as BinaryExpression["operator"],
+        rightValue as number
+      );
   }
-  return { value: arg };
+
+  throw new SyntaxError(`Unsupported assignment operator \`${operator}\``);
 }

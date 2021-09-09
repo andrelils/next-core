@@ -12,7 +12,6 @@ import {
   NewExpression,
   ObjectExpression,
   ObjectPattern,
-  ObjectProperty,
   RestElement,
   SequenceExpression,
   SpreadElement,
@@ -81,18 +80,19 @@ export const CookVisitor = Object.freeze({
     );
     const [...spreadArgs] = state.assignment.rightCooked as unknown[];
     node.elements.forEach((element, index) => {
-      callback(
-        element,
-        spawnCookState(state, {
-          assignment: {
-            ...state.assignment,
-            rightCooked:
-              element.type === "RestElement"
-                ? spreadArgs.slice(index)
-                : spreadArgs[index],
-          },
-        })
-      );
+      if (element)
+        callback(
+          element,
+          spawnCookState(state, {
+            assignment: {
+              ...state.assignment,
+              rightCooked:
+                element.type === "RestElement"
+                  ? spreadArgs.slice(index)
+                  : spreadArgs[index],
+            },
+          })
+        );
     });
     // }
   },

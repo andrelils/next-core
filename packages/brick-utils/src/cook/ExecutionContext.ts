@@ -49,7 +49,11 @@ export class EnvironmentRecord {
     return NormalCompletion(undefined);
   }
 
-  SetMutableBinding(name: string, value: unknown, strict: boolean): CompletionRecord {
+  SetMutableBinding(
+    name: string,
+    value: unknown,
+    strict: boolean
+  ): CompletionRecord {
     const binding = this.bindingMap.get(name);
     if (!binding) {
       if (strict) {
@@ -125,17 +129,26 @@ export interface FunctionObject {
 
 export class ReferenceRecord {
   readonly Base?: unknown | EnvironmentRecord | "unresolvable";
-  readonly ReferenceName?: string;
+  readonly ReferenceName?: PropertyKey;
   readonly Strict?: boolean;
 
-  constructor(base: unknown | EnvironmentRecord | "unresolvable", referenceName: string, strict: boolean) {
+  constructor(
+    base: unknown | EnvironmentRecord | "unresolvable",
+    referenceName: PropertyKey,
+    strict: boolean
+  ) {
     this.Base = base;
     this.ReferenceName = referenceName;
     this.Strict = strict;
   }
 }
 
-export type CompletionRecordType = "normal" | "break" | "continue" | "return" | "throw";
+export type CompletionRecordType =
+  | "normal"
+  | "break"
+  | "continue"
+  | "return"
+  | "throw";
 
 export class CompletionRecord {
   readonly Type: CompletionRecordType;
@@ -150,5 +163,10 @@ export class CompletionRecord {
 export const Empty = Symbol("empty completion");
 
 export function NormalCompletion(value: unknown): CompletionRecord {
+  if (value instanceof CompletionRecord) {
+    throw new TypeError(
+      "We cannot set a CompletionRecord as the Value of another CompletionRecord"
+    );
+  }
   return new CompletionRecord("normal", value);
 }
