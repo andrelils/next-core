@@ -34,10 +34,11 @@ import {
   LoopContinues,
   PutValue,
   RequireObjectCoercible,
-  ToObject,
   ToPropertyKey,
   UpdateEmpty,
   ApplyUnaryOperator,
+  GetIdentifierReference,
+  ForDeclarationBindingInstantiation,
 } from "./context-free";
 import {
   CompletionRecord,
@@ -143,6 +144,18 @@ export function evaluate(
         const leftValue = GetValue(leftRef);
         const rightRef = Evaluate(node.right);
         const rightValue = GetValue(rightRef);
+        if ((node.operator as unknown) === "|>") {
+          if (typeof rightValue !== "function") {
+            const funcName = codeSource.substring(
+              node.right.start,
+              node.right.end
+            );
+            throw new TypeError(`${funcName} is not a function`);
+          }
+          return NormalCompletion(
+            (rightValue as unknown as SimpleFunction)(leftValue)
+          );
+        }
         const result = ApplyStringOrNumericBinaryOperator(
           leftValue as number,
           node.operator,
@@ -195,9 +208,9 @@ export function evaluate(
             );
           // istanbul ignore next
           default:
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore never reach here.
             throw new SyntaxError(
+              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+              // @ts-ignore never reach here.
               `Unsupported logical operator '${node.operator}'`
             );
         }
@@ -278,32 +291,31 @@ export function evaluate(
         const ref = Evaluate(node.argument).Value as ReferenceRecord;
         switch (node.operator) {
           case "delete": {
-            if (
-              !(ref instanceof ReferenceRecord) ||
-              ref.Base === "unresolvable"
-            ) {
+            if (!(ref instanceof ReferenceRecord)) {
               return NormalCompletion(true);
             }
-            if (ref instanceof EnvironmentRecord) {
-              const base = ref.Base as EnvironmentRecord;
-              return NormalCompletion(
-                base.DeleteBinding(ref.ReferenceName as string)
-              );
+            if (IsPropertyReference(ref)) {
+              const deleteStatus = delete (
+                ref.Base as Record<PropertyKey, unknown>
+              )[ref.ReferenceName];
+              if (!deleteStatus && ref.Strict) {
+                const objectName = codeSource.substring(
+                  node.argument.start,
+                  node.argument.end
+                );
+                throw new TypeError(
+                  `Cannot delete property '${
+                    ref.ReferenceName as string
+                  }' of ${objectName}`
+                );
+              }
+              return NormalCompletion(deleteStatus);
             }
-            const baseObj = ToObject(ref.Base);
-            const deleteStatus = delete baseObj[ref.ReferenceName];
-            if (!deleteStatus && ref.Strict) {
-              const objectName = codeSource.substring(
-                node.argument.start,
-                node.argument.end
-              );
-              throw new TypeError(
-                `Cannot delete property '${
-                  ref.ReferenceName as string
-                }' of ${objectName}`
-              );
-            }
-            return NormalCompletion(deleteStatus);
+            // Assert: base is an Environment Record.
+            const base = ref.Base as EnvironmentRecord;
+            return NormalCompletion(
+              base.DeleteBinding(ref.ReferenceName as string)
+            );
           }
           case "typeof":
             if (ref instanceof ReferenceRecord && ref.Base === "unresolvable") {
@@ -444,10 +456,11 @@ export function evaluate(
           let result: CompletionRecord;
           for (const declarator of node.declarations) {
             if (!declarator.init) {
+              // Assert: a declarator with init is always an identifier.
               if (node.kind === "var") {
                 result = NormalCompletion(Empty);
-              } else if (declarator.id.type === "Identifier") {
-                const lhs = ResolveBinding(declarator.id.name);
+              } else {
+                const lhs = ResolveBinding((declarator.id as Identifier).name);
                 result = InitializeReferencedBinding(lhs, undefined);
               }
             } else if (declarator.id.type === "Identifier") {
@@ -832,7 +845,7 @@ export function evaluate(
   function PropertyDestructuringAssignmentEvaluation(
     properties: (EstreeProperty | RestElement)[],
     value: unknown
-  ): CompletionRecord {
+  ): void {
     const excludedNames: PropertyKey[] = [];
     for (const prop of properties) {
       if (prop.type === "Property") {
@@ -859,11 +872,7 @@ export function evaluate(
           excludedNames.push(propName);
         }
       } else {
-        return RestDestructuringAssignmentEvaluation(
-          prop,
-          value,
-          excludedNames
-        );
+        RestDestructuringAssignmentEvaluation(prop, value, excludedNames);
       }
     }
   }
@@ -1094,20 +1103,6 @@ export function evaluate(
     getRunningContext().LexicalEnvironment = thisIterationEnv;
   }
 
-  function ForDeclarationBindingInstantiation(
-    forDeclaration: VariableDeclaration,
-    env: EnvironmentRecord
-  ): void {
-    const isConst = forDeclaration.kind === "const";
-    for (const name of collectBoundNames(forDeclaration.declarations)) {
-      if (isConst) {
-        env.CreateImmutableBinding(name, true);
-      } else {
-        env.CreateMutableBinding(name, false);
-      }
-    }
-  }
-
   function ResolveBinding(
     name: string,
     env?: EnvironmentRecord
@@ -1116,20 +1111,6 @@ export function evaluate(
       env = getRunningContext().LexicalEnvironment;
     }
     return GetIdentifierReference(env, name, true);
-  }
-
-  function GetIdentifierReference(
-    env: EnvironmentRecord,
-    name: string,
-    strict: boolean
-  ): ReferenceRecord {
-    if (!env) {
-      return new ReferenceRecord("unresolvable", name, strict);
-    }
-    if (env.HasBinding(name)) {
-      return new ReferenceRecord(env, name, strict);
-    }
-    return GetIdentifierReference(env.OuterEnv, name, strict);
   }
 
   function BlockDeclarationInstantiation(
@@ -1506,15 +1487,14 @@ export function evaluate(
     if (source === undefined || source === null) {
       return target;
     }
-    const from = ToObject(source);
-    const keys = (Object.getOwnPropertyNames(from) as PropertyKey[]).concat(
-      Object.getOwnPropertySymbols(from)
+    const keys = (Object.getOwnPropertyNames(source) as PropertyKey[]).concat(
+      Object.getOwnPropertySymbols(source)
     );
     for (const nextKey of keys) {
       if (!excludedItems.includes(nextKey)) {
-        const desc = Object.getOwnPropertyDescriptor(from, nextKey);
+        const desc = Object.getOwnPropertyDescriptor(source, nextKey);
         if (desc?.enumerable) {
-          target[nextKey] = from[nextKey];
+          target[nextKey] = (source as Record<PropertyKey, unknown>)[nextKey];
         }
       }
     }

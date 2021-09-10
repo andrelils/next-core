@@ -2155,13 +2155,15 @@ const casesOfMigrated: LooseCase[] = [
         function test(a) {
           const d = delete a.b;
           const e = delete a.f;
-          return { ...a, d, e };
+          var g;
+          const i = delete g?.h;
+          return { ...a, d, e, i };
         }
       `,
       cases: [
         {
           args: [{ b: 1, c: 2 }],
-          result: { c: 2, d: true, e: true },
+          result: { c: 2, d: true, e: true, i: true },
         },
       ],
     },

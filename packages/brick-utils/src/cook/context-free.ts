@@ -1,10 +1,9 @@
 import {
   BinaryExpression,
-  LogicalExpression,
   PatternLike,
   UnaryExpression,
+  VariableDeclaration,
 } from "@babel/types";
-import { SimpleFunction } from "@next-core/brick-types";
 import {
   CompletionRecord,
   Empty,
@@ -12,6 +11,7 @@ import {
   NormalCompletion,
   ReferenceRecord,
 } from "./ExecutionContext";
+import { collectBoundNames } from "./traverse";
 import { isIterable } from "./utils";
 
 export function IsPropertyReference(V: ReferenceRecord): boolean {
@@ -37,6 +37,20 @@ export function LoopContinues(completion: CompletionRecord): boolean {
   return completion.Type === "normal" || completion.Type == "continue";
 }
 
+export function ForDeclarationBindingInstantiation(
+  forDeclaration: VariableDeclaration,
+  env: EnvironmentRecord
+): void {
+  const isConst = forDeclaration.kind === "const";
+  for (const name of collectBoundNames(forDeclaration.declarations)) {
+    if (isConst) {
+      env.CreateImmutableBinding(name, true);
+    } else {
+      env.CreateMutableBinding(name, false);
+    }
+  }
+}
+
 export function UpdateEmpty(
   completion: CompletionRecord,
   value: unknown
@@ -60,27 +74,13 @@ export function GetValue(V: unknown): unknown {
     return V;
   }
   if (V.Base === "unresolvable") {
-    throw new ReferenceError();
+    throw new ReferenceError(`${V.ReferenceName as string} is not defined`);
   }
   if (V.Base instanceof EnvironmentRecord) {
     const base = V.Base as EnvironmentRecord;
     return base.GetBindingValue(V.ReferenceName as string, V.Strict);
-  } else {
-    // NOTE
-    // The object that may be created in step 4.a is not accessible outside of the above abstract operation
-    // and the ordinary object [[Get]] internal method. An implementation might choose to avoid the actual
-    // creation of the object.
-    const baseObj = ToObject(V.Base);
-    return baseObj[V.ReferenceName];
   }
-}
-
-// https://tc39.es/ecma262/#sec-toobject
-export function ToObject(arg: unknown): Record<PropertyKey, unknown> {
-  if (arg === null || arg === undefined) {
-    throw new TypeError();
-  }
-  return arg as Record<PropertyKey, unknown>;
+  return V.Base[V.ReferenceName];
 }
 
 export function ToPropertyKey(arg: unknown): string | symbol {
@@ -91,8 +91,7 @@ export function ToPropertyKey(arg: unknown): string | symbol {
 }
 
 export function GetV(V: unknown, P: PropertyKey): unknown {
-  const O = ToObject(V);
-  return O[P];
+  return (V as Record<PropertyKey, unknown>)[P];
 }
 
 export function PutValue(V: ReferenceRecord, W: unknown): CompletionRecord {
@@ -105,9 +104,7 @@ export function PutValue(V: ReferenceRecord, W: unknown): CompletionRecord {
   if (V.Base instanceof EnvironmentRecord) {
     return V.Base.SetMutableBinding(V.ReferenceName as string, W, V.Strict);
   }
-  // IsPropertyReference
-  const baseObj = ToObject(V.Base);
-  baseObj[V.ReferenceName] = W;
+  V.Base[V.ReferenceName] = W;
   return NormalCompletion(undefined);
 }
 
@@ -130,8 +127,22 @@ export function InitializeReferencedBinding(
 
 export function RequireObjectCoercible(arg: unknown): void {
   if (arg === null || arg === undefined) {
-    throw new TypeError();
+    throw new TypeError("Cannot destructure properties of undefined or null");
   }
+}
+
+export function GetIdentifierReference(
+  env: EnvironmentRecord,
+  name: string,
+  strict: boolean
+): ReferenceRecord {
+  if (!env) {
+    return new ReferenceRecord("unresolvable", name, strict);
+  }
+  if (env.HasBinding(name)) {
+    return new ReferenceRecord(env, name, strict);
+  }
+  return GetIdentifierReference(env.OuterEnv, name, strict);
 }
 
 export function ApplyStringOrNumericBinaryOperator(
@@ -168,11 +179,6 @@ export function ApplyStringOrNumericBinaryOperator(
       return leftValue >= rightValue;
     case "<=":
       return leftValue <= rightValue;
-    case "|>":
-      if ((typeof rightValue as unknown) !== "function") {
-        throw new TypeError();
-      }
-      return (rightValue as unknown as SimpleFunction)(leftValue);
   }
   throw new SyntaxError(`Unsupported binary operator \`${operator}\``);
 }

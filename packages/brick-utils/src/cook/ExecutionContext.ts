@@ -114,8 +114,8 @@ export class EnvironmentRecord {
   }
 
   IsUninitializedBinding(name: string): boolean {
-    const binding = this.bindingMap.get(name);
-    return !!binding && !binding.initialized;
+    // Assert: binding exists.
+    return !this.bindingMap.get(name).initialized;
   }
 }
 

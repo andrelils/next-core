@@ -1,8 +1,4 @@
-import {
-  FunctionDeclaration,
-  VariableDeclaration,
-  VariableDeclarator,
-} from "@babel/types";
+import { FunctionDeclaration, VariableDeclaration } from "@babel/types";
 import { EstreeNode } from "./interfaces";
 
 type InternalCollect<T = void, O = unknown> = (
