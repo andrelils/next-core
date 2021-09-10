@@ -16,7 +16,6 @@ import {
   collectBoundNames,
   collectScopedDeclarations,
   containsExpression,
-  getDeclaredNames,
 } from "./traverse";
 
 export interface AnalysisOptions {
@@ -26,7 +25,7 @@ export interface AnalysisOptions {
 export function analysis(
   root: EstreeNode,
   { expressionOnly }: AnalysisOptions = {}
-): string[] {
+): Set<string> {
   const attemptToVisitGlobals = new Set<string>();
   const analysisContextStack: AnalysisContext[] = [];
   const rootEnv = new AnalysisEnvironment(null);
@@ -327,7 +326,7 @@ export function analysis(
       var: true,
       topLevel: true,
     });
-    const varNames = getDeclaredNames(varDeclarations);
+    const varNames = collectBoundNames(varDeclarations);
 
     const env = calleeContext.LexicalEnvironment;
     BoundNamesInstantiation(formals, env);
@@ -391,5 +390,5 @@ export function analysis(
 
   Evaluate(root);
 
-  return Array.from(attemptToVisitGlobals);
+  return attemptToVisitGlobals;
 }

@@ -65,7 +65,9 @@ describe("", () => {
     ["(b = a, a = c) => b", ["c"]],
   ])("precook(%j).attemptToVisitGlobals should be %j", (source, result) => {
     const expression = parseEstreeExpression(source);
-    expect(analysis(expression, { expressionOnly: true })).toEqual(result);
+    expect(Array.from(analysis(expression, { expressionOnly: true }))).toEqual(
+      result
+    );
     expect(consoleWarn).not.toBeCalled();
   });
 
@@ -471,7 +473,7 @@ describe("", () => {
     ],
   ])("%s", (desc, source, result) => {
     const func = parseEstree(source);
-    expect(analysis(func)).toEqual(result);
+    expect(Array.from(analysis(func))).toEqual(result);
     expect(consoleWarn).not.toBeCalled();
   });
 });

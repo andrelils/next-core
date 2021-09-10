@@ -1,7 +1,9 @@
 import {
+  CallExpression,
   Expression,
   FunctionDeclaration,
   LVal,
+  MemberExpression,
   Node,
   ObjectExpression,
   ObjectPattern,

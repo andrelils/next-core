@@ -78,10 +78,7 @@ interface ScopedDeclarationOptions {
   topLevel?: boolean;
 }
 
-type ScopedDeclaration =
-  | VariableDeclarator
-  | VariableDeclaration
-  | FunctionDeclaration;
+type ScopedDeclaration = VariableDeclaration | FunctionDeclaration;
 
 export function collectScopedDeclarations(
   root: EstreeNode | EstreeNode[],
@@ -110,11 +107,8 @@ export function collectScopedDeclarations(
           return;
         case "VariableDeclaration":
           if (Number(!options.var) ^ Number(node.kind === "var")) {
-            collect(node.declarations, nextOptions);
+            declarations.push(node);
           }
-          return;
-        case "VariableDeclarator":
-          declarations.push(node);
           return;
         case "SwitchCase":
           collect(node.consequent, nextOptions);
@@ -159,16 +153,4 @@ export function collectScopedDeclarations(
   };
   collect(root, options);
   return declarations;
-}
-
-export function getDeclaredNames(
-  declarations: ScopedDeclaration[]
-): Set<string> {
-  const names = new Set<string>();
-  for (const d of declarations) {
-    for (const n of collectBoundNames(d)) {
-      names.add(n);
-    }
-  }
-  return names;
 }

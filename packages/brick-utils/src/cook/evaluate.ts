@@ -3,6 +3,8 @@ import {
   ArrowFunctionExpression,
   BlockStatement,
   CallExpression,
+  CatchClause,
+  DoWhileStatement,
   Expression,
   ForInStatement,
   ForOfStatement,
@@ -16,8 +18,11 @@ import {
   RestElement,
   Statement,
   SwitchCase,
+  TemplateLiteral,
   VariableDeclaration,
+  WhileStatement,
 } from "@babel/types";
+import { SimpleFunction } from "@next-core/brick-types";
 import {
   ApplyStringOrNumericAssignment,
   CreateListIteratorRecord,
@@ -32,6 +37,7 @@ import {
   ToObject,
   ToPropertyKey,
   UpdateEmpty,
+  ApplyUnaryOperator,
 } from "./context-free";
 import {
   CompletionRecord,
@@ -45,6 +51,7 @@ import {
   FunctionEnvironment,
   FunctionObject,
   NormalCompletion,
+  OptionalChainRef,
   ReferenceRecord,
 } from "./ExecutionContext";
 import {
@@ -54,17 +61,20 @@ import {
   EstreeObjectPattern,
   EstreeProperty,
 } from "./interfaces";
+import { fulfilGlobalVariables } from "./supply";
 import {
   collectBoundNames,
   collectScopedDeclarations,
   containsExpression,
-  getDeclaredNames,
 } from "./traverse";
 
 export function evaluate(
-  root: FunctionDeclaration | ArrowFunctionExpression
+  rootAst: FunctionDeclaration | ArrowFunctionExpression,
+  codeSource: string,
+  attemptToVisitGlobals: Set<string>,
+  providedGlobalVariables?: Record<string, unknown>
 ): FunctionObject {
-  const expressionOnly = root.type === "ArrowFunctionExpression";
+  const expressionOnly = rootAst.type === "ArrowFunctionExpression";
 
   const ThrowIfFunctionIsInvalid = (
     func: FunctionDeclaration | FunctionExpression | ArrowFunctionExpression
@@ -81,7 +91,7 @@ export function evaluate(
     }
   };
 
-  ThrowIfFunctionIsInvalid(root);
+  ThrowIfFunctionIsInvalid(rootAst);
 
   const rootEnv = new DeclarativeEnvironment(null);
   const rootContext = new ExecutionContext();
@@ -89,28 +99,36 @@ export function evaluate(
   rootContext.LexicalEnvironment = rootEnv;
   const executionContextStack = [rootContext];
 
+  const globalMap = fulfilGlobalVariables(
+    attemptToVisitGlobals,
+    providedGlobalVariables
+  );
+  for (const [key, value] of globalMap.entries()) {
+    rootEnv.CreateImmutableBinding(key, true);
+    rootEnv.InitializeBinding(key, value);
+  }
+
+  const TemplateMap = new WeakMap<TemplateLiteral, string[]>();
+
   function getRunningContext(): ExecutionContext {
     return executionContextStack[executionContextStack.length - 1];
   }
 
-  function Evaluate(node: EstreeNode): CompletionRecord {
+  function Evaluate(
+    node: EstreeNode,
+    optionalChainRef?: OptionalChainRef
+  ): CompletionRecord {
     // Expressions:
     switch (node.type) {
-      case "Identifier": {
-        const ref = ResolveBinding(node.name);
-        return NormalCompletion(ref);
-      }
       case "ArrayExpression": {
         const array = [];
-        let nextIndex = 0;
         for (const element of node.elements) {
-          if (element) {
-            const initValue = GetValue(Evaluate(element));
-            array[nextIndex] = initValue;
-            nextIndex++;
+          if (!element) {
+            array.length += 1;
+          } else if (element.type === "SpreadElement") {
+            array.push(...(GetValue(Evaluate(element.argument)) as unknown[]));
           } else {
-            nextIndex++;
-            array.length = nextIndex;
+            array.push(GetValue(Evaluate(element)));
           }
         }
         return NormalCompletion(array);
@@ -120,18 +138,9 @@ export function evaluate(
         const closure = InstantiateArrowFunctionExpression(node);
         return NormalCompletion(closure);
       }
-      // case "AssignmentPattern":
-      case "BinaryExpression":
-      case "LogicalExpression": {
+      case "BinaryExpression": {
         const leftRef = Evaluate(node.left);
         const leftValue = GetValue(leftRef);
-        if (
-          node.operator === "??" &&
-          (leftValue === null || leftValue === undefined)
-        ) {
-          const rightRef = Evaluate(node.right);
-          return NormalCompletion(GetValue(rightRef));
-        }
         const rightRef = Evaluate(node.right);
         const rightValue = GetValue(rightRef);
         const result = ApplyStringOrNumericBinaryOperator(
@@ -142,18 +151,21 @@ export function evaluate(
         return NormalCompletion(result);
       }
       case "CallExpression": {
-        const ref = Evaluate(node.callee).Value;
-        const func = GetValue(ref) as FunctionObject;
-        return EvaluateCall(func, ref, node.arguments);
+        const ref = Evaluate(node.callee, optionalChainRef)
+          .Value as ReferenceRecord;
+        const func = GetValue(ref) as SimpleFunction;
+        if (
+          (func === undefined || func === null) &&
+          (node.optional || optionalChainRef?.skipped)
+        ) {
+          optionalChainRef.skipped = true;
+          return NormalCompletion(undefined);
+        }
+        return EvaluateCall(func, ref, node.arguments, node.callee);
       }
-      case "NewExpression":
-        return EvaluateNew(node.callee, node.arguments);
-      //   Evaluate(node.callee);
-      //   Evaluate(node.arguments);
-      //   return;
-      // case "ChainExpression":
-      //   Evaluate(node.expression);
-      //   return;
+      case "ChainExpression": {
+        return Evaluate(node.expression, {});
+      }
       case "ConditionalExpression":
         return NormalCompletion(
           GetValue(
@@ -162,9 +174,48 @@ export function evaluate(
             )
           )
         );
+      case "Identifier":
+        return NormalCompletion(ResolveBinding(node.name));
+      case "Literal":
+        return NormalCompletion(node.value);
+      case "LogicalExpression": {
+        const leftValue = GetValue(Evaluate(node.left));
+        switch (node.operator) {
+          case "&&":
+            return NormalCompletion(
+              leftValue && GetValue(Evaluate(node.right))
+            );
+          case "||":
+            return NormalCompletion(
+              leftValue || GetValue(Evaluate(node.right))
+            );
+          case "??":
+            return NormalCompletion(
+              leftValue ?? GetValue(Evaluate(node.right))
+            );
+          // istanbul ignore next
+          default:
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore never reach here.
+            throw new SyntaxError(
+              `Unsupported logical operator '${node.operator}'`
+            );
+        }
+      }
       case "MemberExpression": {
-        const baseReference = Evaluate(node.object);
-        const baseValue = GetValue(baseReference);
+        const baseReference = Evaluate(node.object, optionalChainRef)
+          .Value as ReferenceRecord;
+        const baseValue = GetValue(baseReference) as Record<
+          PropertyKey,
+          unknown
+        >;
+        if (
+          (baseValue === undefined || baseValue === null) &&
+          (node.optional || optionalChainRef?.skipped)
+        ) {
+          optionalChainRef.skipped = true;
+          return NormalCompletion(undefined);
+        }
         return NormalCompletion(
           node.computed
             ? EvaluatePropertyAccessWithExpressionKey(
@@ -179,6 +230,8 @@ export function evaluate(
               )
         );
       }
+      case "NewExpression":
+        return EvaluateNew(node.callee, node.arguments);
       case "ObjectExpression": {
         const object: Record<PropertyKey, unknown> = {};
         for (const prop of (node as EstreeObjectExpression).properties) {
@@ -192,24 +245,13 @@ export function evaluate(
             // Todo: __proto__
             const propName =
               !prop.computed && prop.key.type === "Identifier"
-                ? (GetValue(Evaluate(prop.key)) as PropertyKey)
+                ? prop.key.name
                 : EvaluatePropertyName(prop.key);
             object[propName] = GetValue(Evaluate(prop.value));
           }
         }
         return NormalCompletion(object);
       }
-      // case "Property":
-      //   if (node.computed) {
-      //     Evaluate(node.key);
-      //   }
-      //   Evaluate(node.value);
-      //   return;
-      // case "RestElement":
-      // case "SpreadElement":
-      // case "UnaryExpression":
-      //   Evaluate(node.argument);
-      //   return;
       case "SequenceExpression": {
         let result: CompletionRecord;
         for (const expr of node.expressions) {
@@ -217,15 +259,63 @@ export function evaluate(
         }
         return result;
       }
-      // case "TemplateLiteral":
-      //   Evaluate(node.expressions);
-      //   return;
-      // case "TaggedTemplateExpression":
-      //   Evaluate(node.tag);
-      //   Evaluate(node.quasi);
-      //   return;
-      case "Literal":
-        return NormalCompletion(node.value);
+      case "TemplateLiteral": {
+        const chunks: string[] = [node.quasis[0].value.cooked];
+        let index = 0;
+        for (const expr of node.expressions) {
+          const val = GetValue(Evaluate(expr));
+          chunks.push(String(val));
+          chunks.push(node.quasis[(index += 1)].value.cooked);
+        }
+        return NormalCompletion(chunks.join(""));
+      }
+      case "TaggedTemplateExpression": {
+        const tagRef = Evaluate(node.tag).Value as ReferenceRecord;
+        const tagFunc = GetValue(tagRef) as SimpleFunction;
+        return EvaluateCall(tagFunc, tagRef, node.quasi, node.tag);
+      }
+      case "UnaryExpression": {
+        const ref = Evaluate(node.argument).Value as ReferenceRecord;
+        switch (node.operator) {
+          case "delete": {
+            if (
+              !(ref instanceof ReferenceRecord) ||
+              ref.Base === "unresolvable"
+            ) {
+              return NormalCompletion(true);
+            }
+            if (ref instanceof EnvironmentRecord) {
+              const base = ref.Base as EnvironmentRecord;
+              return NormalCompletion(
+                base.DeleteBinding(ref.ReferenceName as string)
+              );
+            }
+            const baseObj = ToObject(ref.Base);
+            const deleteStatus = delete baseObj[ref.ReferenceName];
+            if (!deleteStatus && ref.Strict) {
+              const objectName = codeSource.substring(
+                node.argument.start,
+                node.argument.end
+              );
+              throw new TypeError(
+                `Cannot delete property '${
+                  ref.ReferenceName as string
+                }' of ${objectName}`
+              );
+            }
+            return NormalCompletion(deleteStatus);
+          }
+          case "typeof":
+            if (ref instanceof ReferenceRecord && ref.Base === "unresolvable") {
+              return NormalCompletion("undefined");
+            }
+            return NormalCompletion(typeof GetValue(ref));
+          default:
+            return NormalCompletion(
+              ApplyUnaryOperator(GetValue(ref), node.operator)
+            );
+        }
+      }
     }
     if (!expressionOnly) {
       // Statements and assignments:
@@ -251,19 +341,16 @@ export function evaluate(
             const rval = GetValue(rref) as string | number;
             DestructuringAssignmentEvaluation(node.left, rval);
             return NormalCompletion(rval);
-          } else {
-            const lref = Evaluate(node.left).Value as ReferenceRecord;
-            const lval = GetValue(lref) as string | number;
-            const rref = Evaluate(node.right);
-            const rval = GetValue(rref) as string | number;
-            const r = ApplyStringOrNumericAssignment(lval, node.operator, rval);
-            PutValue(lref, r);
-            return NormalCompletion(r);
           }
+          // Operators other than `=`.
+          const lref = Evaluate(node.left).Value as ReferenceRecord;
+          const lval = GetValue(lref) as string | number;
+          const rref = Evaluate(node.right);
+          const rval = GetValue(rref) as string | number;
+          const r = ApplyStringOrNumericAssignment(lval, node.operator, rval);
+          PutValue(lref, r);
+          return NormalCompletion(r);
         }
-        //   Evaluate(node.right);
-        //   Evaluate(node.left);
-        //   return;
         case "BlockStatement": {
           if (!node.body.length) {
             return NormalCompletion(Empty);
@@ -282,22 +369,8 @@ export function evaluate(
           return new CompletionRecord("continue", Empty);
         case "EmptyStatement":
           return NormalCompletion(Empty);
-        // case "CatchClause": {
-        //   const oldEnv = getRunningContext().LexicalEnvironment;
-        //   const catchEnv = new DeclarativeEnvironment(oldEnv);
-        //   for (const argName of collectBoundNames(node.param)) {
-        //     catchEnv.CreateMutableBinding(argName, false);
-        //   }
-        //   getRunningContext().LexicalEnvironment = catchEnv;
-        //   Evaluate(node.param);
-        //   Evaluate(node.body);
-        //   getRunningContext().LexicalEnvironment = oldEnv;
-        //   return;
-        // }
-        // case "DoWhileStatement":
-        //   Evaluate(node.body);
-        //   Evaluate(node.test);
-        //   return;
+        case "DoWhileStatement":
+          return EvaluateBreakableStatement(DoWhileLoopEvaluation(node));
         case "ExpressionStatement":
         case "TSAsExpression":
           return Evaluate(node.expression);
@@ -306,14 +379,11 @@ export function evaluate(
           return EvaluateBreakableStatement(ForInOfLoopEvaluation(node));
         case "ForStatement":
           return EvaluateBreakableStatement(ForLoopEvaluation(node));
-        case "FunctionDeclaration": {
+        case "FunctionDeclaration":
           return NormalCompletion(Empty);
-        }
-        case "FunctionExpression": {
+        case "FunctionExpression":
           ThrowIfFunctionIsInvalid(node);
-          const closure = InstantiateOrdinaryFunctionExpression(node);
-          return NormalCompletion(closure);
-        }
+          return NormalCompletion(InstantiateOrdinaryFunctionExpression(node));
         case "IfStatement":
           return GetValue(Evaluate(node.test))
             ? UpdateEmpty(Evaluate(node.consequent), undefined)
@@ -328,10 +398,15 @@ export function evaluate(
           }
           return new CompletionRecord("return", v);
         }
-        // case "ThrowStatement":
-        // case "UpdateExpression":
-        //   Evaluate(node.argument);
-        //   return;
+        case "ThrowStatement":
+          throw GetValue(Evaluate(node.argument));
+        case "UpdateExpression": {
+          const lhs = Evaluate(node.argument).Value as ReferenceRecord;
+          const oldValue = Number(GetValue(lhs));
+          const newValue = node.operator === "++" ? oldValue + 1 : oldValue - 1;
+          PutValue(lhs, newValue);
+          return NormalCompletion(node.prefix ? newValue : oldValue);
+        }
         case "SwitchCase":
           return EvaluateStatementList(node.consequent);
         case "SwitchStatement": {
@@ -345,11 +420,26 @@ export function evaluate(
           getRunningContext().LexicalEnvironment = oldEnv;
           return EvaluateBreakableStatement(R);
         }
-        // case "TryStatement":
-        //   Evaluate(node.block);
-        //   Evaluate(node.handler);
-        //   Evaluate(node.finalizer);
-        //   return;
+        case "TryStatement": {
+          let R: CompletionRecord;
+          try {
+            R = Evaluate(node.block);
+          } catch (error) {
+            if (node.handler) {
+              R = CatchClauseEvaluation(node.handler, error);
+            } else {
+              throw error;
+            }
+          } finally {
+            if (node.finalizer) {
+              const F = Evaluate(node.finalizer);
+              if (F.Type !== "normal") {
+                R = F;
+              }
+            }
+          }
+          return R;
+        }
         case "VariableDeclaration": {
           let result: CompletionRecord;
           for (const declarator of node.declarations) {
@@ -384,14 +474,32 @@ export function evaluate(
           }
           return result;
         }
-        // case "WhileStatement":
-        //   Evaluate(node.test);
-        //   Evaluate(node.body);
-        //   return;
+        case "WhileStatement":
+          return EvaluateBreakableStatement(WhileLoopEvaluation(node));
       }
     }
     // eslint-disable-next-line no-console
     throw new SyntaxError(`Unsupported node type \`${node.type}\``);
+  }
+
+  function CatchClauseEvaluation(
+    node: CatchClause,
+    thrownValue: unknown
+  ): CompletionRecord {
+    const oldEnv = getRunningContext().LexicalEnvironment;
+    const catchEnv = new DeclarativeEnvironment(oldEnv);
+    for (const argName of collectBoundNames(node.param)) {
+      catchEnv.CreateMutableBinding(argName, false);
+    }
+    getRunningContext().LexicalEnvironment = catchEnv;
+    const status = BindingInitialization(node.param, thrownValue, catchEnv);
+    if (status.Type !== "normal") {
+      getRunningContext().LexicalEnvironment = oldEnv;
+      return status;
+    }
+    const B = Evaluate(node.body);
+    getRunningContext().LexicalEnvironment = oldEnv;
+    return B;
   }
 
   function CaseBlockEvaluation(
@@ -453,7 +561,7 @@ export function evaluate(
       return UpdateEmpty(R, V);
     }
 
-    // 14. NOTE: The following is another complete iteration of the second CaseClauses.
+    // NOTE: The following is another complete iteration of the second CaseClauses.
     for (const C of B) {
       const R = Evaluate(C);
       if (R.Value !== Empty) {
@@ -472,7 +580,7 @@ export function evaluate(
   }
 
   function EvaluatePropertyAccessWithExpressionKey(
-    baseValue: unknown,
+    baseValue: Record<PropertyKey, unknown>,
     expression: Expression,
     strict: boolean
   ): ReferenceRecord {
@@ -483,7 +591,7 @@ export function evaluate(
   }
 
   function EvaluatePropertyAccessWithIdentifierKey(
-    baseValue: unknown,
+    baseValue: Record<PropertyKey, unknown>,
     identifierName: Identifier,
     strict: boolean
   ): ReferenceRecord {
@@ -492,21 +600,21 @@ export function evaluate(
   }
 
   function EvaluateCall(
-    func: FunctionObject,
+    func: SimpleFunction,
     ref: ReferenceRecord,
-    args: CallExpression["arguments"]
+    args: CallExpression["arguments"] | TemplateLiteral,
+    callee: CallExpression["callee"]
   ): CompletionRecord {
     let thisValue;
     if (ref instanceof ReferenceRecord) {
       if (IsPropertyReference(ref)) {
         thisValue = ref.Base;
-      } else {
-        throw new TypeError();
       }
     }
     const argList = ArgumentListEvaluation(args);
     if (typeof func !== "function") {
-      throw new TypeError();
+      const funcName = codeSource.substring(callee.start, callee.end);
+      throw new TypeError(`${funcName} is not a function`);
     }
     return NormalCompletion(func.apply(thisValue, argList));
   }
@@ -522,17 +630,43 @@ export function evaluate(
   }
 
   function ArgumentListEvaluation(
-    args: CallExpression["arguments"]
+    args: CallExpression["arguments"] | TemplateLiteral
   ): unknown[] {
     const array: unknown[] = [];
-    for (const arg of args) {
-      if (arg.type === "SpreadElement") {
-        array.push(...(GetValue(Evaluate(arg)) as unknown[]));
-      } else {
-        array.push(GetValue(Evaluate(arg)));
+    if (Array.isArray(args)) {
+      for (const arg of args) {
+        if (arg.type === "SpreadElement") {
+          array.push(...(GetValue(Evaluate(arg.argument)) as unknown[]));
+        } else {
+          array.push(GetValue(Evaluate(arg)));
+        }
+      }
+    } else {
+      array.push(GetTemplateObject(args));
+      for (const expr of args.expressions) {
+        array.push(GetValue(Evaluate(expr)));
       }
     }
     return array;
+  }
+
+  function GetTemplateObject(templateLiteral: TemplateLiteral): string[] {
+    const memo = TemplateMap.get(templateLiteral);
+    if (memo) {
+      return memo;
+    }
+    const rawObj = templateLiteral.quasis.map((quasi) => quasi.value.raw);
+    const template = templateLiteral.quasis.map((quasi) => quasi.value.cooked);
+    Object.freeze(rawObj);
+    Object.defineProperty(template, "raw", {
+      value: rawObj,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+    Object.freeze(template);
+    TemplateMap.set(templateLiteral, template);
+    return template;
   }
 
   function EvaluateBreakableStatement(
@@ -702,21 +836,27 @@ export function evaluate(
     const excludedNames: PropertyKey[] = [];
     for (const prop of properties) {
       if (prop.type === "Property") {
-        if (!prop.computed && prop.key.type === "Identifier") {
-          const P = prop.key.name;
-          const lref = ResolveBinding(P);
-          let v = GetV(value, P);
+        const propName =
+          !prop.computed && prop.key.type === "Identifier"
+            ? prop.key.name
+            : (EvaluatePropertyName(prop.key) as string);
+        const valueTarget =
+          prop.value.type === "AssignmentPattern"
+            ? prop.value.left
+            : prop.value;
+        if (valueTarget.type === "Identifier") {
+          const lref = ResolveBinding(valueTarget.name);
+          let v = GetV(value, propName);
           if (prop.value.type === "AssignmentPattern" && v === undefined) {
             // Todo(steve): check IsAnonymousFunctionDefinition(Initializer)
             const defaultValue = Evaluate(prop.value.right);
             v = GetValue(defaultValue);
           }
           PutValue(lref, v);
-          excludedNames.push(P);
+          excludedNames.push(propName);
         } else {
-          const name = EvaluatePropertyName(prop.key);
-          KeyedDestructuringAssignmentEvaluation(prop.value, value, name);
-          excludedNames.push(name);
+          KeyedDestructuringAssignmentEvaluation(prop.value, value, propName);
+          excludedNames.push(propName);
         }
       } else {
         return RestDestructuringAssignmentEvaluation(
@@ -901,6 +1041,42 @@ export function evaluate(
     }
   }
 
+  function WhileLoopEvaluation(node: WhileStatement): CompletionRecord {
+    let V: unknown;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const exprValue = GetValue(Evaluate(node.test));
+      if (!exprValue) {
+        return NormalCompletion(V);
+      }
+      const stmtResult = Evaluate(node.body);
+      if (!LoopContinues(stmtResult)) {
+        return UpdateEmpty(stmtResult, V);
+      }
+      if (stmtResult.Value !== Empty) {
+        V = stmtResult.Value;
+      }
+    }
+  }
+
+  function DoWhileLoopEvaluation(node: DoWhileStatement): CompletionRecord {
+    let V: unknown;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const stmtResult = Evaluate(node.body);
+      if (!LoopContinues(stmtResult)) {
+        return UpdateEmpty(stmtResult, V);
+      }
+      if (stmtResult.Value !== Empty) {
+        V = stmtResult.Value;
+      }
+      const exprValue = GetValue(Evaluate(node.test));
+      if (!exprValue) {
+        return NormalCompletion(V);
+      }
+    }
+  }
+
   function CreatePerIterationEnvironment(
     perIterationBindings: string[]
   ): unknown {
@@ -1024,7 +1200,10 @@ export function evaluate(
     args: Iterable<unknown>
   ): CompletionRecord {
     FunctionDeclarationInstantiation(F, args);
-    return Array.isArray(body) ? EvaluateStatementList(body) : Evaluate(body);
+    if (Array.isArray(body)) {
+      return EvaluateStatementList(body);
+    }
+    return new CompletionRecord("return", GetValue(Evaluate(body)));
   }
 
   function EvaluateStatementList(statements: Statement[]): CompletionRecord {
@@ -1054,7 +1233,7 @@ export function evaluate(
       var: true,
       topLevel: true,
     });
-    const varNames = getDeclaredNames(varDeclarations);
+    const varNames = collectBoundNames(varDeclarations);
 
     // `functionNames` ∈ `varNames`
     // `functionsToInitialize` ≈ `functionNames`
@@ -1298,8 +1477,7 @@ export function evaluate(
   }
 
   function EvaluatePropertyName(node: Expression): PropertyKey {
-    const exprValue = Evaluate(node);
-    const propName = GetValue(exprValue);
+    const propName = GetValue(Evaluate(node));
     return ToPropertyKey(propName);
   }
 
@@ -1468,15 +1646,11 @@ export function evaluate(
   }
 
   if (expressionOnly) {
-    if (!root.expression) {
-      throw new SyntaxError(
-        "Only an `Expression` is allowed in `ArrowFunctionExpression`'s body"
-      );
-    }
-    return InstantiateArrowFunctionExpression(root);
+    return InstantiateArrowFunctionExpression(rootAst);
   } else {
-    const [fn] = collectBoundNames(root);
-    const fo = InstantiateFunctionObject(root, rootEnv);
+    const [fn] = collectBoundNames(rootAst);
+    const fo = InstantiateFunctionObject(rootAst, rootEnv);
+    // Create an immutable binding for the root function.
     rootEnv.CreateImmutableBinding(fn, true);
     rootEnv.InitializeBinding(fn, fo);
     return fo;

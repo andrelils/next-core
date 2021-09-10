@@ -6,21 +6,12 @@ import { CookScope, FLAG_SANDBOX } from "./Scope";
 
 export function supply(
   attemptToVisitGlobals: Set<string>,
-  globalVariables: Record<string, unknown> = {}
+  providedGlobalVariables?: Record<string, unknown>
 ): CookScope {
-  const globalMap = new Map(Object.entries(globalVariables));
-
-  // Allow limited DOM builtin values.
-  globalMap.set("undefined", undefined);
-
-  for (const variableName of attemptToVisitGlobals.values()) {
-    if (!globalMap.has(variableName)) {
-      const variable = supplyIndividual(variableName);
-      if (variable !== undefined) {
-        globalMap.set(variableName, variable);
-      }
-    }
-  }
+  const globalMap = fulfilGlobalVariables(
+    attemptToVisitGlobals,
+    providedGlobalVariables
+  );
 
   const scope = new CookScope(FLAG_SANDBOX);
   for (const [key, value] of globalMap.entries()) {
@@ -32,6 +23,24 @@ export function supply(
   }
 
   return scope;
+}
+
+export function fulfilGlobalVariables(
+  attemptToVisitGlobals: Set<string>,
+  providedGlobalVariables: Record<string, unknown> = {}
+): Map<string, unknown> {
+  const globalMap = new Map(Object.entries(providedGlobalVariables));
+  // Allow limited DOM builtin values.
+  globalMap.set("undefined", undefined);
+  for (const variableName of attemptToVisitGlobals) {
+    if (!globalMap.has(variableName)) {
+      const variable = supplyIndividual(variableName);
+      if (variable !== undefined) {
+        globalMap.set(variableName, variable);
+      }
+    }
+  }
+  return globalMap;
 }
 
 const shouldOmitInLodash = new Set([

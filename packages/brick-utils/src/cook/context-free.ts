@@ -1,6 +1,10 @@
-import { BinaryExpression, LogicalExpression, PatternLike } from "@babel/types";
+import {
+  BinaryExpression,
+  LogicalExpression,
+  PatternLike,
+  UnaryExpression,
+} from "@babel/types";
 import { SimpleFunction } from "@next-core/brick-types";
-import { right } from "inquirer/lib/utils/readline";
 import {
   CompletionRecord,
   Empty,
@@ -96,7 +100,7 @@ export function PutValue(V: ReferenceRecord, W: unknown): CompletionRecord {
     throw new ReferenceError();
   }
   if (V.Base === "unresolvable") {
-    throw new ReferenceError();
+    throw new ReferenceError(`${V.ReferenceName as string} is not defined`);
   }
   if (V.Base instanceof EnvironmentRecord) {
     return V.Base.SetMutableBinding(V.ReferenceName as string, W, V.Strict);
@@ -132,14 +136,14 @@ export function RequireObjectCoercible(arg: unknown): void {
 
 export function ApplyStringOrNumericBinaryOperator(
   leftValue: number,
-  operator: (BinaryExpression | LogicalExpression)["operator"] | "|>",
+  operator: BinaryExpression["operator"] | "|>",
   rightValue: number
 ): unknown {
   switch (operator) {
     case "+":
       return leftValue + rightValue;
     case "-":
-      return leftValue + rightValue;
+      return leftValue - rightValue;
     case "/":
       return leftValue / rightValue;
     case "%":
@@ -193,4 +197,21 @@ export function ApplyStringOrNumericAssignment(
   }
 
   throw new SyntaxError(`Unsupported assignment operator \`${operator}\``);
+}
+
+export function ApplyUnaryOperator(
+  target: unknown,
+  operator: UnaryExpression["operator"]
+): unknown {
+  switch (operator) {
+    case "!":
+      return !target;
+    case "+":
+      return +target;
+    case "-":
+      return -target;
+    case "void":
+      return undefined;
+  }
+  throw new SyntaxError(`Unsupported unary operator \`${operator}\``);
 }

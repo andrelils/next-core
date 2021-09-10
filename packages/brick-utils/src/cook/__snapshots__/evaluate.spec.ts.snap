@@ -1,0 +1,29 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`evaluate Should throw: access before initialized 1`] = `"b is not initialized"`;
+
+exports[`evaluate Should throw: assign \`for const ... of\` 1`] = `"Attempt to change an immutable binding"`;
+
+exports[`evaluate Should throw: assign \`for const ...\` 1`] = `"Attempt to change an immutable binding"`;
+
+exports[`evaluate Should throw: assign constants 1`] = `"Attempt to change an immutable binding"`;
+
+exports[`evaluate Should throw: assign function expressions 1`] = `"Attempt to change an immutable binding"`;
+
+exports[`evaluate Should throw: assign global functions 1`] = `"Attempt to change an immutable binding"`;
+
+exports[`evaluate Should throw: assign member of nil 1`] = `""`;
+
+exports[`evaluate Should throw: expression: (DATA.notExisted?.length).oops 1`] = `""`;
+
+exports[`evaluate Should throw: expression: DATA.number5.toFixed?.().oops() 1`] = `"DATA.number5.toFixed?.().oops is not a function"`;
+
+exports[`evaluate Should throw: expression: DATA.number5?.toFixed.oo.ps 1`] = `""`;
+
+exports[`evaluate Should throw: expression: DATA?.() 1`] = `"DATA is not a function"`;
+
+exports[`evaluate Should throw: expression: DATA?.number5() 1`] = `"DATA?.number5 is not a function"`;
+
+exports[`evaluate Should throw: expression: DATA?.number5.notExisted.oops 1`] = `""`;
+
+exports[`evaluate Should throw: try without catch 1`] = `"a is not a function"`;

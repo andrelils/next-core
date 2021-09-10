@@ -26,15 +26,22 @@ export class EnvironmentRecord {
     // Assert: binding does not exist.
     this.bindingMap.set(name, {
       mutable: true,
-      deletable: deletable,
+      deletable,
     });
     return NormalCompletion(undefined);
   }
 
+  /**
+   * Create an immutable binding.
+   *
+   * @param name - The binding name.
+   * @param strict - For named function expressions, strict is false, otherwise it's true.
+   * @returns CompletionRecord.
+   */
   CreateImmutableBinding(name: string, strict: boolean): CompletionRecord {
     // Assert: binding does not exist.
     this.bindingMap.set(name, {
-      strict: strict,
+      strict,
     });
     return NormalCompletion(undefined);
   }
@@ -49,6 +56,14 @@ export class EnvironmentRecord {
     return NormalCompletion(undefined);
   }
 
+  /**
+   * Update a mutable binding value, including function declarations.
+   *
+   * @param name - The binding name.
+   * @param value - The binding value.
+   * @param strict - For functions, strict is always false, otherwise it depends on strict-mode.
+   * @returns
+   */
   SetMutableBinding(
     name: string,
     value: unknown,
@@ -79,7 +94,7 @@ export class EnvironmentRecord {
   GetBindingValue(name: string, strict: boolean): unknown {
     const binding = this.bindingMap.get(name);
     if (strict && !binding) {
-      throw new ReferenceError();
+      throw new ReferenceError(`${name} is not defined`);
     }
     // Assert: binding exists.
     if (!binding.initialized) {
@@ -110,10 +125,18 @@ export class FunctionEnvironment extends EnvironmentRecord {}
 
 export interface BindingState {
   initialized?: boolean;
-  mutable?: boolean;
-  deletable?: boolean;
-  strict?: boolean;
   value?: unknown;
+  mutable?: boolean;
+
+  /** This is used for mutable bindings only. */
+  deletable?: boolean;
+
+  /**
+   * This is used for immutable bindings only.
+   * For named function expressions, `strict` is false,
+   * otherwise it's true.
+   */
+  strict?: boolean;
 }
 
 export const FormalParameters = Symbol.for("FormalParameters");
@@ -128,12 +151,16 @@ export interface FunctionObject {
 }
 
 export class ReferenceRecord {
-  readonly Base?: unknown | EnvironmentRecord | "unresolvable";
+  readonly Base?:
+    | Record<PropertyKey, unknown>
+    | EnvironmentRecord
+    | "unresolvable";
   readonly ReferenceName?: PropertyKey;
+  /** Whether the reference is in strict mode. */
   readonly Strict?: boolean;
 
   constructor(
-    base: unknown | EnvironmentRecord | "unresolvable",
+    base: Record<PropertyKey, unknown> | EnvironmentRecord | "unresolvable",
     referenceName: PropertyKey,
     strict: boolean
   ) {
@@ -169,4 +196,8 @@ export function NormalCompletion(value: unknown): CompletionRecord {
     );
   }
   return new CompletionRecord("normal", value);
+}
+
+export interface OptionalChainRef {
+  skipped?: boolean;
 }
