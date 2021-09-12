@@ -150,6 +150,7 @@ export interface FunctionObject {
   [Environment]: EnvironmentRecord;
 }
 
+// https://tc39.es/ecma262/#sec-reference-record-specification-type
 export class ReferenceRecord {
   readonly Base?:
     | Record<PropertyKey, unknown>
@@ -170,13 +171,7 @@ export class ReferenceRecord {
   }
 }
 
-export type CompletionRecordType =
-  | "normal"
-  | "break"
-  | "continue"
-  | "return"
-  | "throw";
-
+// https://tc39.es/ecma262/#sec-completion-record-specification-type
 export class CompletionRecord {
   readonly Type: CompletionRecordType;
   readonly Value: unknown;
@@ -187,9 +182,16 @@ export class CompletionRecord {
   }
 }
 
-export const Empty = Symbol("empty completion");
+export type CompletionRecordType =
+  | "normal"
+  | "break"
+  | "continue"
+  | "return"
+  | "throw";
 
+// https://tc39.es/ecma262/#sec-normalcompletion
 export function NormalCompletion(value: unknown): CompletionRecord {
+  // This `if` statement should be removed finally.
   if (value instanceof CompletionRecord) {
     throw new TypeError(
       "We cannot set a CompletionRecord as the Value of another CompletionRecord"
@@ -197,6 +199,8 @@ export function NormalCompletion(value: unknown): CompletionRecord {
   }
   return new CompletionRecord("normal", value);
 }
+
+export const Empty = Symbol("empty completion");
 
 export interface OptionalChainRef {
   skipped?: boolean;

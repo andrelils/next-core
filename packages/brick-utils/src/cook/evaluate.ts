@@ -39,6 +39,7 @@ import {
   ApplyUnaryOperator,
   GetIdentifierReference,
   ForDeclarationBindingInstantiation,
+  CopyDataProperties,
 } from "./context-free";
 import {
   CompletionRecord,
@@ -77,9 +78,9 @@ export function evaluate(
 ): FunctionObject {
   const expressionOnly = rootAst.type === "ArrowFunctionExpression";
 
-  const ThrowIfFunctionIsInvalid = (
+  function ThrowIfFunctionIsInvalid(
     func: FunctionDeclaration | FunctionExpression | ArrowFunctionExpression
-  ): void => {
+  ): void {
     if (func.async || func.generator) {
       throw new SyntaxError(
         `${func.async ? "Async" : "Generator"} function is not allowed`
@@ -90,7 +91,7 @@ export function evaluate(
         "Only an `Expression` is allowed in `ArrowFunctionExpression`'s body"
       );
     }
-  };
+  }
 
   ThrowIfFunctionIsInvalid(rootAst);
 
@@ -111,8 +112,24 @@ export function evaluate(
 
   const TemplateMap = new WeakMap<TemplateLiteral, string[]>();
 
-  function getRunningContext(): ExecutionContext {
-    return executionContextStack[executionContextStack.length - 1];
+  // https://tc39.es/ecma262/#sec-gettemplateobject
+  function GetTemplateObject(templateLiteral: TemplateLiteral): string[] {
+    const memo = TemplateMap.get(templateLiteral);
+    if (memo) {
+      return memo;
+    }
+    const rawObj = templateLiteral.quasis.map((quasi) => quasi.value.raw);
+    const template = templateLiteral.quasis.map((quasi) => quasi.value.cooked);
+    Object.freeze(rawObj);
+    Object.defineProperty(template, "raw", {
+      value: rawObj,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+    Object.freeze(template);
+    TemplateMap.set(templateLiteral, template);
+    return template;
   }
 
   function Evaluate(
@@ -122,12 +139,16 @@ export function evaluate(
     // Expressions:
     switch (node.type) {
       case "ArrayExpression": {
+        // https://tc39.es/ecma262/#sec-array-initializer
         const array = [];
         for (const element of node.elements) {
           if (!element) {
             array.length += 1;
           } else if (element.type === "SpreadElement") {
-            array.push(...(GetValue(Evaluate(element.argument)) as unknown[]));
+            const spreadValues = GetValue(
+              Evaluate(element.argument)
+            ) as unknown[];
+            array.push(...spreadValues);
           } else {
             array.push(GetValue(Evaluate(element)));
           }
@@ -135,6 +156,7 @@ export function evaluate(
         return NormalCompletion(array);
       }
       case "ArrowFunctionExpression": {
+        // https://tc39.es/ecma262/#sec-arrow-function-definitions
         ThrowIfFunctionIsInvalid(node);
         const closure = InstantiateArrowFunctionExpression(node);
         return NormalCompletion(closure);
@@ -144,7 +166,10 @@ export function evaluate(
         const leftValue = GetValue(leftRef);
         const rightRef = Evaluate(node.right);
         const rightValue = GetValue(rightRef);
-        if ((node.operator as unknown) === "|>") {
+        if (expressionOnly && (node.operator as unknown) === "|>") {
+          // Minimal pipeline operator is supported only in expression-only mode.
+          // See https://tc39.es/proposal-pipeline-operator
+          // and https://github.com/tc39/proposal-pipeline-operator
           if (typeof rightValue !== "function") {
             const funcName = codeSource.substring(
               node.right.start,
@@ -152,10 +177,20 @@ export function evaluate(
             );
             throw new TypeError(`${funcName} is not a function`);
           }
+          let thisValue;
+          if (rightRef instanceof ReferenceRecord) {
+            if (IsPropertyReference(rightRef)) {
+              thisValue = rightRef.Base;
+            }
+          }
           return NormalCompletion(
-            (rightValue as unknown as SimpleFunction)(leftValue)
+            (rightValue as unknown as SimpleFunction).apply(
+              thisValue,
+              leftValue as unknown[]
+            )
           );
         }
+        // https://tc39.es/ecma262/#sec-additive-operators
         const result = ApplyStringOrNumericBinaryOperator(
           leftValue as number,
           node.operator,
@@ -164,6 +199,7 @@ export function evaluate(
         return NormalCompletion(result);
       }
       case "CallExpression": {
+        // https://tc39.es/ecma262/#sec-function-calls
         const ref = Evaluate(node.callee, optionalChainRef)
           .Value as ReferenceRecord;
         const func = GetValue(ref) as SimpleFunction;
@@ -176,10 +212,11 @@ export function evaluate(
         }
         return EvaluateCall(func, ref, node.arguments, node.callee);
       }
-      case "ChainExpression": {
+      case "ChainExpression":
+        // https://tc39.es/ecma262/#sec-optional-chains
         return Evaluate(node.expression, {});
-      }
       case "ConditionalExpression":
+        // https://tc39.es/ecma262/#sec-conditional-operator
         return NormalCompletion(
           GetValue(
             Evaluate(
@@ -188,10 +225,13 @@ export function evaluate(
           )
         );
       case "Identifier":
+        // https://tc39.es/ecma262/#sec-identifiers
         return NormalCompletion(ResolveBinding(node.name));
       case "Literal":
+        // https://tc39.es/ecma262/#sec-primary-expression-literals
         return NormalCompletion(node.value);
       case "LogicalExpression": {
+        // https://tc39.es/ecma262/#sec-binary-logical-operators
         const leftValue = GetValue(Evaluate(node.left));
         switch (node.operator) {
           case "&&":
@@ -216,6 +256,7 @@ export function evaluate(
         }
       }
       case "MemberExpression": {
+        // https://tc39.es/ecma262/#sec-property-accessors
         const baseReference = Evaluate(node.object, optionalChainRef)
           .Value as ReferenceRecord;
         const baseValue = GetValue(baseReference) as Record<
@@ -244,8 +285,10 @@ export function evaluate(
         );
       }
       case "NewExpression":
+        // https://tc39.es/ecma262/#sec-new-operator
         return EvaluateNew(node.callee, node.arguments);
       case "ObjectExpression": {
+        // https://tc39.es/ecma262/#sec-object-initializer
         const object: Record<PropertyKey, unknown> = {};
         for (const prop of (node as EstreeObjectExpression).properties) {
           if (prop.type === "SpreadElement") {
@@ -259,13 +302,14 @@ export function evaluate(
             const propName =
               !prop.computed && prop.key.type === "Identifier"
                 ? prop.key.name
-                : EvaluatePropertyName(prop.key);
+                : EvaluateComputedPropertyName(prop.key);
             object[propName] = GetValue(Evaluate(prop.value));
           }
         }
         return NormalCompletion(object);
       }
       case "SequenceExpression": {
+        // https://tc39.es/ecma262/#sec-comma-operator
         let result: CompletionRecord;
         for (const expr of node.expressions) {
           result = NormalCompletion(GetValue(Evaluate(expr)));
@@ -273,6 +317,7 @@ export function evaluate(
         return result;
       }
       case "TemplateLiteral": {
+        // https://tc39.es/ecma262/#sec-template-literals
         const chunks: string[] = [node.quasis[0].value.cooked];
         let index = 0;
         for (const expr of node.expressions) {
@@ -283,11 +328,13 @@ export function evaluate(
         return NormalCompletion(chunks.join(""));
       }
       case "TaggedTemplateExpression": {
+        // https://tc39.es/ecma262/#sec-tagged-templates
         const tagRef = Evaluate(node.tag).Value as ReferenceRecord;
         const tagFunc = GetValue(tagRef) as SimpleFunction;
         return EvaluateCall(tagFunc, tagRef, node.quasi, node.tag);
       }
       case "UnaryExpression": {
+        // https://tc39.es/ecma262/#sec-unary-operators
         const ref = Evaluate(node.argument).Value as ReferenceRecord;
         switch (node.operator) {
           case "delete": {
@@ -333,6 +380,7 @@ export function evaluate(
       // Statements and assignments:
       switch (node.type) {
         case "AssignmentExpression": {
+          // https://tc39.es/ecma262/#sec-assignment-operators
           if (node.operator === "=") {
             if (
               !(
@@ -364,6 +412,7 @@ export function evaluate(
           return NormalCompletion(r);
         }
         case "BlockStatement": {
+          // https://tc39.es/ecma262/#sec-block
           if (!node.body.length) {
             return NormalCompletion(Empty);
           }
@@ -376,33 +425,44 @@ export function evaluate(
           return blockValue;
         }
         case "BreakStatement":
+          // https://tc39.es/ecma262/#sec-break-statement
           return new CompletionRecord("break", Empty);
         case "ContinueStatement":
+          // https://tc39.es/ecma262/#sec-continue-statement
           return new CompletionRecord("continue", Empty);
         case "EmptyStatement":
+          // https://tc39.es/ecma262/#sec-empty-statement
           return NormalCompletion(Empty);
         case "DoWhileStatement":
+          // https://tc39.es/ecma262/#sec-do-while-statement
           return EvaluateBreakableStatement(DoWhileLoopEvaluation(node));
         case "ExpressionStatement":
         case "TSAsExpression":
+          // https://tc39.es/ecma262/#sec-expression-statement
           return Evaluate(node.expression);
         case "ForInStatement":
         case "ForOfStatement":
+          // https://tc39.es/ecma262/#sec-for-in-and-for-of-statements
           return EvaluateBreakableStatement(ForInOfLoopEvaluation(node));
         case "ForStatement":
+          // https://tc39.es/ecma262/#sec-for-statement
           return EvaluateBreakableStatement(ForLoopEvaluation(node));
         case "FunctionDeclaration":
+          // https://tc39.es/ecma262/#sec-function-definitions
           return NormalCompletion(Empty);
         case "FunctionExpression":
+          // https://tc39.es/ecma262/#sec-function-defining-expressions
           ThrowIfFunctionIsInvalid(node);
           return NormalCompletion(InstantiateOrdinaryFunctionExpression(node));
         case "IfStatement":
+          // https://tc39.es/ecma262/#sec-if-statement
           return GetValue(Evaluate(node.test))
             ? UpdateEmpty(Evaluate(node.consequent), undefined)
             : node.alternate
             ? UpdateEmpty(Evaluate(node.alternate), undefined)
             : NormalCompletion(undefined);
         case "ReturnStatement": {
+          // https://tc39.es/ecma262/#sec-return-statement
           let v: unknown;
           if (node.argument) {
             const exprRef = Evaluate(node.argument);
@@ -411,8 +471,10 @@ export function evaluate(
           return new CompletionRecord("return", v);
         }
         case "ThrowStatement":
+          // https://tc39.es/ecma262/#sec-throw-statement
           throw GetValue(Evaluate(node.argument));
         case "UpdateExpression": {
+          // https://tc39.es/ecma262/#sec-update-expressions
           const lhs = Evaluate(node.argument).Value as ReferenceRecord;
           const oldValue = Number(GetValue(lhs));
           const newValue = node.operator === "++" ? oldValue + 1 : oldValue - 1;
@@ -422,6 +484,7 @@ export function evaluate(
         case "SwitchCase":
           return EvaluateStatementList(node.consequent);
         case "SwitchStatement": {
+          // https://tc39.es/ecma262/#sec-switch-statement
           const exprRef = Evaluate(node.discriminant);
           const switchValue = GetValue(exprRef);
           const oldEnv = getRunningContext().LexicalEnvironment;
@@ -433,6 +496,7 @@ export function evaluate(
           return EvaluateBreakableStatement(R);
         }
         case "TryStatement": {
+          // https://tc39.es/ecma262/#sec-try-statement
           let R: CompletionRecord;
           try {
             R = Evaluate(node.block);
@@ -453,10 +517,11 @@ export function evaluate(
           return R;
         }
         case "VariableDeclaration": {
+          // https://tc39.es/ecma262/#sec-declarations-and-the-variable-statement
           let result: CompletionRecord;
           for (const declarator of node.declarations) {
             if (!declarator.init) {
-              // Assert: a declarator with init is always an identifier.
+              // Assert: a declarator without init is always an identifier.
               if (node.kind === "var") {
                 result = NormalCompletion(Empty);
               } else {
@@ -488,6 +553,7 @@ export function evaluate(
           return result;
         }
         case "WhileStatement":
+          // https://tc39.es/ecma262/#sec-while-statement
           return EvaluateBreakableStatement(WhileLoopEvaluation(node));
       }
     }
@@ -495,6 +561,24 @@ export function evaluate(
     throw new SyntaxError(`Unsupported node type \`${node.type}\``);
   }
 
+  // https://tc39.es/ecma262/#sec-execution-contexts
+  function getRunningContext(): ExecutionContext {
+    return executionContextStack[executionContextStack.length - 1];
+  }
+
+  // https://tc39.es/ecma262/#sec-resolvebinding
+  function ResolveBinding(
+    name: string,
+    env?: EnvironmentRecord
+  ): ReferenceRecord {
+    if (!env) {
+      env = getRunningContext().LexicalEnvironment;
+    }
+    return GetIdentifierReference(env, name, true);
+  }
+
+  // Try statements.
+  // https://tc39.es/ecma262/#sec-runtime-semantics-catchclauseevaluation
   function CatchClauseEvaluation(
     node: CatchClause,
     thrownValue: unknown
@@ -515,6 +599,20 @@ export function evaluate(
     return B;
   }
 
+  // Iteration statements and switch statements.
+  // https://tc39.es/ecma262/#prod-BreakableStatement
+  function EvaluateBreakableStatement(
+    stmtResult: CompletionRecord
+  ): CompletionRecord {
+    return stmtResult.Type === "break"
+      ? stmtResult.Value === Empty
+        ? NormalCompletion(undefined)
+        : NormalCompletion(stmtResult.Value)
+      : stmtResult;
+  }
+
+  // Switch statements.
+  // https://tc39.es/ecma262/#sec-runtime-semantics-caseblockevaluation
   function CaseBlockEvaluation(
     cases: SwitchCase[],
     input: unknown
@@ -587,111 +685,54 @@ export function evaluate(
     return NormalCompletion(V);
   }
 
+  // https://tc39.es/ecma262/#sec-runtime-semantics-caseclauseisselected
   function CaseClauseIsSelected(C: SwitchCase, input: unknown): boolean {
     const clauseSelector = GetValue(Evaluate(C.test));
     return input === clauseSelector;
   }
 
-  function EvaluatePropertyAccessWithExpressionKey(
-    baseValue: Record<PropertyKey, unknown>,
-    expression: Expression,
-    strict: boolean
-  ): ReferenceRecord {
-    const propertyNameReference = Evaluate(expression);
-    const propertyNameValue = GetValue(propertyNameReference);
-    const propertyKey = ToPropertyKey(propertyNameValue);
-    return new ReferenceRecord(baseValue, propertyKey, strict);
-  }
-
-  function EvaluatePropertyAccessWithIdentifierKey(
-    baseValue: Record<PropertyKey, unknown>,
-    identifierName: Identifier,
-    strict: boolean
-  ): ReferenceRecord {
-    const propertyNameString = identifierName.name;
-    return new ReferenceRecord(baseValue, propertyNameString, strict);
-  }
-
-  function EvaluateCall(
-    func: SimpleFunction,
-    ref: ReferenceRecord,
-    args: CallExpression["arguments"] | TemplateLiteral,
-    callee: CallExpression["callee"]
-  ): CompletionRecord {
-    let thisValue;
-    if (ref instanceof ReferenceRecord) {
-      if (IsPropertyReference(ref)) {
-        thisValue = ref.Base;
+  // While statements.
+  // https://tc39.es/ecma262/#sec-runtime-semantics-whileloopevaluation
+  function WhileLoopEvaluation(node: WhileStatement): CompletionRecord {
+    let V: unknown;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const exprValue = GetValue(Evaluate(node.test));
+      if (!exprValue) {
+        return NormalCompletion(V);
+      }
+      const stmtResult = Evaluate(node.body);
+      if (!LoopContinues(stmtResult)) {
+        return UpdateEmpty(stmtResult, V);
+      }
+      if (stmtResult.Value !== Empty) {
+        V = stmtResult.Value;
       }
     }
-    const argList = ArgumentListEvaluation(args);
-    if (typeof func !== "function") {
-      const funcName = codeSource.substring(callee.start, callee.end);
-      throw new TypeError(`${funcName} is not a function`);
-    }
-    return NormalCompletion(func.apply(thisValue, argList));
   }
 
-  function EvaluateNew(
-    constructExpr: CallExpression["callee"],
-    args: NewExpression["arguments"]
-  ): CompletionRecord {
-    const ref = Evaluate(constructExpr);
-    const constructor = GetValue(ref) as new (...args: unknown[]) => unknown;
-    const argList = ArgumentListEvaluation(args);
-    return NormalCompletion(new constructor(...argList));
-  }
-
-  function ArgumentListEvaluation(
-    args: CallExpression["arguments"] | TemplateLiteral
-  ): unknown[] {
-    const array: unknown[] = [];
-    if (Array.isArray(args)) {
-      for (const arg of args) {
-        if (arg.type === "SpreadElement") {
-          array.push(...(GetValue(Evaluate(arg.argument)) as unknown[]));
-        } else {
-          array.push(GetValue(Evaluate(arg)));
-        }
+  // Do-while Statements.
+  // https://tc39.es/ecma262/#sec-runtime-semantics-dowhileloopevaluation
+  function DoWhileLoopEvaluation(node: DoWhileStatement): CompletionRecord {
+    let V: unknown;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const stmtResult = Evaluate(node.body);
+      if (!LoopContinues(stmtResult)) {
+        return UpdateEmpty(stmtResult, V);
       }
-    } else {
-      array.push(GetTemplateObject(args));
-      for (const expr of args.expressions) {
-        array.push(GetValue(Evaluate(expr)));
+      if (stmtResult.Value !== Empty) {
+        V = stmtResult.Value;
+      }
+      const exprValue = GetValue(Evaluate(node.test));
+      if (!exprValue) {
+        return NormalCompletion(V);
       }
     }
-    return array;
   }
 
-  function GetTemplateObject(templateLiteral: TemplateLiteral): string[] {
-    const memo = TemplateMap.get(templateLiteral);
-    if (memo) {
-      return memo;
-    }
-    const rawObj = templateLiteral.quasis.map((quasi) => quasi.value.raw);
-    const template = templateLiteral.quasis.map((quasi) => quasi.value.cooked);
-    Object.freeze(rawObj);
-    Object.defineProperty(template, "raw", {
-      value: rawObj,
-      writable: false,
-      enumerable: false,
-      configurable: false,
-    });
-    Object.freeze(template);
-    TemplateMap.set(templateLiteral, template);
-    return template;
-  }
-
-  function EvaluateBreakableStatement(
-    stmtResult: CompletionRecord
-  ): CompletionRecord {
-    return stmtResult.Type === "break"
-      ? stmtResult.Value === Empty
-        ? NormalCompletion(undefined)
-        : NormalCompletion(stmtResult.Value)
-      : stmtResult;
-  }
-
+  // For in/of statements.
+  // https://tc39.es/ecma262/#sec-runtime-semantics-forinofloopevaluation
   function ForInOfLoopEvaluation(
     node: ForInStatement | ForOfStatement
   ): CompletionRecord {
@@ -724,6 +765,7 @@ export function evaluate(
     );
   }
 
+  // https://tc39.es/ecma262/#sec-runtime-semantics-forinofheadevaluation
   function ForInOfHeadEvaluation(
     uninitializedBoundNames: string[],
     expr: Expression,
@@ -750,12 +792,6 @@ export function evaluate(
     }
     const iterator = CreateListIteratorRecord(exprValue as Iterable<unknown>);
     return NormalCompletion(iterator);
-  }
-
-  function* EnumerateObjectProperties(value: any): Iterator<PropertyKey> {
-    for (const key in value) {
-      yield key;
-    }
   }
 
   function ForInOfBodyEvaluation(
@@ -821,6 +857,107 @@ export function evaluate(
     }
   }
 
+  // https://tc39.es/ecma262/#sec-enumerate-object-properties
+  function* EnumerateObjectProperties(value: any): Iterator<PropertyKey> {
+    for (const key in value) {
+      yield key;
+    }
+  }
+
+  // For statements.
+  // https://tc39.es/ecma262/#sec-runtime-semantics-forloopevaluation
+  function ForLoopEvaluation(node: ForStatement): CompletionRecord {
+    if (node.init?.type === "VariableDeclaration") {
+      // `for (var … ; … ; … ) …`
+      if (node.init.kind === "var") {
+        Evaluate(node.init);
+        return ForBodyEvaluation(node.test, node.update, node.body, []);
+      }
+      // `for (let/const … ; … ; … ) …`
+      const oldEnv = getRunningContext().LexicalEnvironment;
+      const loopEnv = new DeclarativeEnvironment(oldEnv);
+      const isConst = node.init.kind === "const";
+      const boundNames = collectBoundNames(node.init);
+      for (const dn of boundNames) {
+        if (isConst) {
+          loopEnv.CreateImmutableBinding(dn, true);
+        } else {
+          loopEnv.CreateMutableBinding(dn, false);
+        }
+      }
+      getRunningContext().LexicalEnvironment = loopEnv;
+      Evaluate(node.init);
+      const perIterationLets = isConst ? [] : Array.from(boundNames);
+      const bodyResult = ForBodyEvaluation(
+        node.test,
+        node.update,
+        node.body,
+        perIterationLets
+      );
+      getRunningContext().LexicalEnvironment = oldEnv;
+      return bodyResult;
+    }
+    // `for ( … ; … ; … ) …`
+    if (node.init) {
+      const exprRef = Evaluate(node.init);
+      GetValue(exprRef);
+    }
+    return ForBodyEvaluation(node.test, node.update, node.body, []);
+  }
+
+  // https://tc39.es/ecma262/#sec-forbodyevaluation
+  function ForBodyEvaluation(
+    test: Expression,
+    increment: Expression,
+    stmt: Statement,
+    perIterationBindings: string[]
+  ): CompletionRecord {
+    CreatePerIterationEnvironment(perIterationBindings);
+    let V: unknown;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (test) {
+        const testRef = Evaluate(test);
+        const testValue = GetValue(testRef);
+        if (!testValue) {
+          return NormalCompletion(V);
+        }
+      }
+      const result = Evaluate(stmt) as CompletionRecord;
+      if (!LoopContinues(result)) {
+        return UpdateEmpty(result, V);
+      }
+      if (result.Value) {
+        V = result.Value;
+      }
+      CreatePerIterationEnvironment(perIterationBindings);
+      if (increment) {
+        const incRef = Evaluate(increment);
+        GetValue(incRef);
+      }
+    }
+  }
+
+  // https://tc39.es/ecma262/#sec-createperiterationenvironment
+  function CreatePerIterationEnvironment(
+    perIterationBindings: string[]
+  ): unknown {
+    if (perIterationBindings.length === 0) {
+      return;
+    }
+    const lastIterationEnv = getRunningContext().LexicalEnvironment;
+    const outer = lastIterationEnv.OuterEnv;
+    const thisIterationEnv = new DeclarativeEnvironment(outer);
+    for (const bn of perIterationBindings) {
+      thisIterationEnv.CreateMutableBinding(bn, false);
+      const lastValue = lastIterationEnv.GetBindingValue(bn, false);
+      thisIterationEnv.InitializeBinding(bn, lastValue);
+    }
+    getRunningContext().LexicalEnvironment = thisIterationEnv;
+  }
+
+  // Destructuring assignments.
+  // https://tc39.es/ecma262/#sec-runtime-semantics-destructuringassignmentevaluation
   function DestructuringAssignmentEvaluation(
     pattern: ObjectPattern | EstreeObjectPattern | ArrayPattern,
     value: unknown
@@ -842,6 +979,7 @@ export function evaluate(
     );
   }
 
+  // https://tc39.es/ecma262/#sec-runtime-semantics-propertydestructuringassignmentevaluation
   function PropertyDestructuringAssignmentEvaluation(
     properties: (EstreeProperty | RestElement)[],
     value: unknown
@@ -852,7 +990,7 @@ export function evaluate(
         const propName =
           !prop.computed && prop.key.type === "Identifier"
             ? prop.key.name
-            : (EvaluatePropertyName(prop.key) as string);
+            : (EvaluateComputedPropertyName(prop.key) as string);
         const valueTarget =
           prop.value.type === "AssignmentPattern"
             ? prop.value.left
@@ -877,6 +1015,7 @@ export function evaluate(
     }
   }
 
+  // https://tc39.es/ecma262/#sec-runtime-semantics-keyeddestructuringassignmentevaluation
   function KeyedDestructuringAssignmentEvaluation(
     node: EstreeNode,
     value: unknown,
@@ -910,6 +1049,7 @@ export function evaluate(
     return PutValue(lref, rhsValue);
   }
 
+  // https://tc39.es/ecma262/#sec-runtime-semantics-restdestructuringassignmentevaluation
   function RestDestructuringAssignmentEvaluation(
     restProperty: RestElement,
     value: unknown,
@@ -920,6 +1060,7 @@ export function evaluate(
     return PutValue(lref, restObj);
   }
 
+  // https://tc39.es/ecma262/#sec-runtime-semantics-iteratordestructuringassignmentevaluation
   function IteratorDestructuringAssignmentEvaluation(
     elements: PatternLike[],
     iteratorRecord: Iterator<unknown>
@@ -978,141 +1119,31 @@ export function evaluate(
     return status;
   }
 
-  // https://tc39.es/ecma262/#sec-runtime-semantics-forloopevaluation
-  function ForLoopEvaluation(node: ForStatement): CompletionRecord {
-    if (node.init?.type === "VariableDeclaration") {
-      // `for (var … ; … ; … ) …`
-      if (node.init.kind === "var") {
-        Evaluate(node.init);
-        return ForBodyEvaluation(node.test, node.update, node.body, []);
-      }
-      // `for (let/const … ; … ; … ) …`
-      const oldEnv = getRunningContext().LexicalEnvironment;
-      const loopEnv = new DeclarativeEnvironment(oldEnv);
-      const isConst = node.init.kind === "const";
-      const boundNames = collectBoundNames(node.init);
-      for (const dn of boundNames) {
-        if (isConst) {
-          loopEnv.CreateImmutableBinding(dn, true);
-        } else {
-          loopEnv.CreateMutableBinding(dn, false);
-        }
-      }
-      getRunningContext().LexicalEnvironment = loopEnv;
-      Evaluate(node.init);
-      const perIterationLets = isConst ? [] : Array.from(boundNames);
-      const bodyResult = ForBodyEvaluation(
-        node.test,
-        node.update,
-        node.body,
-        perIterationLets
-      );
-      getRunningContext().LexicalEnvironment = oldEnv;
-      return bodyResult;
-    }
-    // `for ( … ; … ; … ) …`
-    if (node.init) {
-      const exprRef = Evaluate(node.init);
-      GetValue(exprRef);
-    }
-    return ForBodyEvaluation(node.test, node.update, node.body, []);
-  }
-
-  function ForBodyEvaluation(
-    test: Expression,
-    increment: Expression,
-    stmt: Statement,
-    perIterationBindings: string[]
-  ): CompletionRecord {
-    CreatePerIterationEnvironment(perIterationBindings);
-    let V: unknown;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      if (test) {
-        const testRef = Evaluate(test);
-        const testValue = GetValue(testRef);
-        if (!testValue) {
-          return NormalCompletion(V);
-        }
-      }
-      const result = Evaluate(stmt) as CompletionRecord;
-      if (!LoopContinues(result)) {
-        return UpdateEmpty(result, V);
-      }
-      if (result.Value) {
-        V = result.Value;
-      }
-      CreatePerIterationEnvironment(perIterationBindings);
-      if (increment) {
-        const incRef = Evaluate(increment);
-        GetValue(incRef);
-      }
-    }
-  }
-
-  function WhileLoopEvaluation(node: WhileStatement): CompletionRecord {
-    let V: unknown;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const exprValue = GetValue(Evaluate(node.test));
-      if (!exprValue) {
-        return NormalCompletion(V);
-      }
-      const stmtResult = Evaluate(node.body);
-      if (!LoopContinues(stmtResult)) {
-        return UpdateEmpty(stmtResult, V);
-      }
-      if (stmtResult.Value !== Empty) {
-        V = stmtResult.Value;
-      }
-    }
-  }
-
-  function DoWhileLoopEvaluation(node: DoWhileStatement): CompletionRecord {
-    let V: unknown;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const stmtResult = Evaluate(node.body);
-      if (!LoopContinues(stmtResult)) {
-        return UpdateEmpty(stmtResult, V);
-      }
-      if (stmtResult.Value !== Empty) {
-        V = stmtResult.Value;
-      }
-      const exprValue = GetValue(Evaluate(node.test));
-      if (!exprValue) {
-        return NormalCompletion(V);
-      }
-    }
-  }
-
-  function CreatePerIterationEnvironment(
-    perIterationBindings: string[]
-  ): unknown {
-    if (perIterationBindings.length === 0) {
-      return;
-    }
-    const lastIterationEnv = getRunningContext().LexicalEnvironment;
-    const outer = lastIterationEnv.OuterEnv;
-    const thisIterationEnv = new DeclarativeEnvironment(outer);
-    for (const bn of perIterationBindings) {
-      thisIterationEnv.CreateMutableBinding(bn, false);
-      const lastValue = lastIterationEnv.GetBindingValue(bn, false);
-      thisIterationEnv.InitializeBinding(bn, lastValue);
-    }
-    getRunningContext().LexicalEnvironment = thisIterationEnv;
-  }
-
-  function ResolveBinding(
-    name: string,
-    env?: EnvironmentRecord
+  // Object expressions.
+  // https://tc39.es/ecma262/#sec-evaluate-property-access-with-expression-key
+  function EvaluatePropertyAccessWithExpressionKey(
+    baseValue: Record<PropertyKey, unknown>,
+    expression: Expression,
+    strict: boolean
   ): ReferenceRecord {
-    if (!env) {
-      env = getRunningContext().LexicalEnvironment;
-    }
-    return GetIdentifierReference(env, name, true);
+    const propertyNameReference = Evaluate(expression);
+    const propertyNameValue = GetValue(propertyNameReference);
+    const propertyKey = ToPropertyKey(propertyNameValue);
+    return new ReferenceRecord(baseValue, propertyKey, strict);
   }
 
+  // https://tc39.es/ecma262/#sec-evaluate-property-access-with-identifier-key
+  function EvaluatePropertyAccessWithIdentifierKey(
+    baseValue: Record<PropertyKey, unknown>,
+    identifier: Identifier,
+    strict: boolean
+  ): ReferenceRecord {
+    const propertyNameString = identifier.name;
+    return new ReferenceRecord(baseValue, propertyNameString, strict);
+  }
+
+  // Block statements.
+  // https://tc39.es/ecma262/#sec-blockdeclarationinstantiation
   function BlockDeclarationInstantiation(
     code: Statement[] | SwitchCase[],
     env: EnvironmentRecord
@@ -1143,11 +1174,67 @@ export function evaluate(
     }
   }
 
+  // Function declarations and expressions.
+  // https://tc39.es/ecma262/#sec-evaluatecall
+  function EvaluateCall(
+    func: SimpleFunction,
+    ref: ReferenceRecord,
+    args: CallExpression["arguments"] | TemplateLiteral,
+    callee: CallExpression["callee"]
+  ): CompletionRecord {
+    let thisValue;
+    if (ref instanceof ReferenceRecord) {
+      if (IsPropertyReference(ref)) {
+        thisValue = ref.Base;
+      }
+    }
+    const argList = ArgumentListEvaluation(args);
+    if (typeof func !== "function") {
+      const funcName = codeSource.substring(callee.start, callee.end);
+      throw new TypeError(`${funcName} is not a function`);
+    }
+    return NormalCompletion(func.apply(thisValue, argList));
+  }
+
+  // https://tc39.es/ecma262/#sec-evaluatenew
+  function EvaluateNew(
+    constructExpr: CallExpression["callee"],
+    args: NewExpression["arguments"]
+  ): CompletionRecord {
+    const ref = Evaluate(constructExpr);
+    const constructor = GetValue(ref) as new (...args: unknown[]) => unknown;
+    const argList = ArgumentListEvaluation(args);
+    return NormalCompletion(new constructor(...argList));
+  }
+
+  // https://tc39.es/ecma262/#sec-runtime-semantics-argumentlistevaluation
+  function ArgumentListEvaluation(
+    args: CallExpression["arguments"] | TemplateLiteral
+  ): unknown[] {
+    const array: unknown[] = [];
+    if (Array.isArray(args)) {
+      for (const arg of args) {
+        if (arg.type === "SpreadElement") {
+          array.push(...(GetValue(Evaluate(arg.argument)) as unknown[]));
+        } else {
+          array.push(GetValue(Evaluate(arg)));
+        }
+      }
+    } else {
+      array.push(GetTemplateObject(args));
+      for (const expr of args.expressions) {
+        array.push(GetValue(Evaluate(expr)));
+      }
+    }
+    return array;
+  }
+
+  // https://tc39.es/ecma262/#sec-ecmascript-function-objects-call-thisargument-argumentslist
   function CallFunction(
     closure: FunctionObject,
     args: Iterable<unknown>
   ): unknown {
-    PrepareOrdinaryCall(closure);
+    PrepareForOrdinaryCall(closure);
     const result = OrdinaryCallEvaluateBody(closure, args);
     executionContextStack.pop();
     if (result.Type === "return") {
@@ -1156,18 +1243,18 @@ export function evaluate(
     return undefined;
   }
 
-  function PrepareOrdinaryCall(F: FunctionObject): ExecutionContext {
-    // const callerContext = getRunningContext();
+  // https://tc39.es/ecma262/#sec-prepareforordinarycall
+  function PrepareForOrdinaryCall(F: FunctionObject): ExecutionContext {
     const calleeContext = new ExecutionContext();
     calleeContext.Function = F;
     const localEnv = new FunctionEnvironment(F[Environment]);
     calleeContext.VariableEnvironment = localEnv;
     calleeContext.LexicalEnvironment = localEnv;
-    // callerContext.suspend();
     executionContextStack.push(calleeContext);
     return calleeContext;
   }
 
+  // https://tc39.es/ecma262/#sec-ordinarycallevaluatebody
   function OrdinaryCallEvaluateBody(
     F: FunctionObject,
     args: Iterable<unknown>
@@ -1175,6 +1262,7 @@ export function evaluate(
     return EvaluateFunctionBody(F[ECMAScriptCode], F, args);
   }
 
+  // https://tc39.es/ecma262/#sec-runtime-semantics-evaluatefunctionbody
   function EvaluateFunctionBody(
     body: Statement[] | Expression,
     F: FunctionObject,
@@ -1187,6 +1275,7 @@ export function evaluate(
     return new CompletionRecord("return", GetValue(Evaluate(body)));
   }
 
+  // https://tc39.es/ecma262/#sec-block-runtime-semantics-evaluation
   function EvaluateStatementList(statements: Statement[]): CompletionRecord {
     let result = NormalCompletion(Empty);
     for (const stmt of statements) {
@@ -1201,6 +1290,7 @@ export function evaluate(
     return result;
   }
 
+  // https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
   function FunctionDeclarationInstantiation(
     func: FunctionObject,
     args: Iterable<unknown>
@@ -1303,6 +1393,177 @@ export function evaluate(
     }
   }
 
+  // https://tc39.es/ecma262/#sec-runtime-semantics-instantiatefunctionobject
+  function InstantiateFunctionObject(
+    func: FunctionDeclaration,
+    scope: EnvironmentRecord
+  ): FunctionObject {
+    const F = OrdinaryFunctionCreate(func.params, func.body, scope);
+    return F;
+  }
+
+  // https://tc39.es/ecma262/#sec-runtime-semantics-instantiateordinaryfunctionexpression
+  function InstantiateOrdinaryFunctionExpression(
+    functionExpression: FunctionExpression
+  ): FunctionObject {
+    const scope = getRunningContext().LexicalEnvironment;
+    if (functionExpression.id) {
+      const name = functionExpression.id.name;
+      const funcEnv = new DeclarativeEnvironment(scope);
+      funcEnv.CreateImmutableBinding(name, false);
+      const closure = OrdinaryFunctionCreate(
+        functionExpression.params,
+        functionExpression.body,
+        funcEnv
+      );
+      funcEnv.InitializeBinding(name, closure);
+      return closure;
+    } else {
+      const closure = OrdinaryFunctionCreate(
+        functionExpression.params,
+        functionExpression.body,
+        scope
+      );
+      return closure;
+    }
+  }
+
+  // https://tc39.es/ecma262/#sec-runtime-semantics-instantiatearrowfunctionexpression
+  function InstantiateArrowFunctionExpression(
+    arrowFunction: ArrowFunctionExpression
+  ): FunctionObject {
+    const scope = getRunningContext().LexicalEnvironment;
+    const closure = OrdinaryFunctionCreate(
+      arrowFunction.params,
+      arrowFunction.body,
+      scope
+    );
+    return closure;
+  }
+
+  // https://tc39.es/ecma262/#sec-ordinaryfunctioncreate
+  function OrdinaryFunctionCreate(
+    parameterList: FunctionDeclaration["params"],
+    body: BlockStatement | Expression,
+    scope: EnvironmentRecord
+  ): FunctionObject {
+    const F = function () {
+      // eslint-disable-next-line prefer-rest-params
+      return CallFunction(F, arguments);
+    } as FunctionObject;
+    Object.defineProperties(F, {
+      [FormalParameters]: {
+        enumerable: false,
+        writable: false,
+        value: parameterList,
+      },
+      [ECMAScriptCode]: {
+        enumerable: false,
+        writable: false,
+        value: body.type === "BlockStatement" ? body.body : body,
+      },
+      [Environment]: {
+        enumerable: false,
+        writable: false,
+        value: scope,
+      },
+    });
+    return F;
+  }
+
+  // Patterns initialization.
+  // https://tc39.es/ecma262/#sec-runtime-semantics-bindinginitialization
+  function BindingInitialization(
+    node: EstreeLVal,
+    value: unknown,
+    environment: EnvironmentRecord
+  ): CompletionRecord {
+    switch (node.type) {
+      case "Identifier":
+        return InitializeBoundName(node.name, value, environment);
+      case "ObjectPattern":
+        RequireObjectCoercible(value);
+        return PropertyBindingInitialization(
+          (node as EstreeObjectPattern).properties,
+          value,
+          environment
+        );
+      case "ArrayPattern": {
+        const iteratorRecord = CreateListIteratorRecord(
+          value as Iterable<unknown>
+        );
+        return IteratorBindingInitialization(
+          node.elements,
+          iteratorRecord,
+          environment
+        );
+      }
+    }
+  }
+
+  // https://tc39.es/ecma262/#sec-destructuring-binding-patterns-runtime-semantics-propertybindinginitialization
+  function PropertyBindingInitialization(
+    properties: (EstreeProperty | RestElement)[],
+    value: unknown,
+    environment: EnvironmentRecord
+  ): CompletionRecord {
+    const excludedNames: PropertyKey[] = [];
+    for (const prop of properties) {
+      if (prop.type === "RestElement") {
+        return RestBindingInitialization(
+          prop,
+          value,
+          environment,
+          excludedNames
+        );
+      }
+      if (!prop.computed && prop.key.type === "Identifier") {
+        KeyedBindingInitialization(
+          prop.value as EstreeLVal,
+          value,
+          environment,
+          prop.key.name
+        );
+        excludedNames.push(prop.key.name);
+      } else {
+        const P = EvaluateComputedPropertyName(prop.key);
+        KeyedBindingInitialization(
+          prop.value as EstreeLVal,
+          value,
+          environment,
+          P
+        );
+        excludedNames.push(P);
+      }
+    }
+    return NormalCompletion(Empty);
+  }
+
+  // https://tc39.es/ecma262/#prod-ComputedPropertyName
+  function EvaluateComputedPropertyName(node: Expression): PropertyKey {
+    const propName = GetValue(Evaluate(node));
+    return ToPropertyKey(propName);
+  }
+
+  // https://tc39.es/ecma262/#sec-destructuring-binding-patterns-runtime-semantics-restbindinginitialization
+  function RestBindingInitialization(
+    restProperty: RestElement,
+    value: unknown,
+    environment: EnvironmentRecord,
+    excludedNames: PropertyKey[]
+  ): CompletionRecord {
+    const lhs = ResolveBinding(
+      (restProperty.argument as Identifier).name,
+      environment
+    );
+    const restObj = CopyDataProperties({}, value, excludedNames);
+    if (!environment) {
+      return PutValue(lhs, restObj);
+    }
+    return InitializeReferencedBinding(lhs, restObj);
+  }
+
+  // https://tc39.es/ecma262/#sec-runtime-semantics-iteratorbindinginitialization
   function IteratorBindingInitialization(
     elements: PatternLike[],
     iteratorRecord: Iterator<unknown>,
@@ -1392,115 +1653,7 @@ export function evaluate(
     return result;
   }
 
-  function BindingInitialization(
-    node: EstreeLVal,
-    value: unknown,
-    environment: EnvironmentRecord
-  ): CompletionRecord {
-    switch (node.type) {
-      case "Identifier":
-        return InitializeBoundName(node.name, value, environment);
-      case "ObjectPattern":
-        RequireObjectCoercible(value);
-        return PropertyBindingInitialization(
-          (node as EstreeObjectPattern).properties,
-          value,
-          environment
-        );
-      case "ArrayPattern": {
-        const iteratorRecord = CreateListIteratorRecord(
-          value as Iterable<unknown>
-        );
-        return IteratorBindingInitialization(
-          node.elements,
-          iteratorRecord,
-          environment
-        );
-      }
-    }
-  }
-
-  function PropertyBindingInitialization(
-    properties: (EstreeProperty | RestElement)[],
-    value: unknown,
-    environment: EnvironmentRecord
-  ): CompletionRecord {
-    const excludedNames: PropertyKey[] = [];
-    for (const prop of properties) {
-      if (prop.type === "RestElement") {
-        return RestBindingInitialization(
-          prop,
-          value,
-          environment,
-          excludedNames
-        );
-      }
-      if (!prop.computed && prop.key.type === "Identifier") {
-        KeyedBindingInitialization(
-          prop.value as EstreeLVal,
-          value,
-          environment,
-          prop.key.name
-        );
-        excludedNames.push(prop.key.name);
-      } else {
-        const P = EvaluatePropertyName(prop.key);
-        KeyedBindingInitialization(
-          prop.value as EstreeLVal,
-          value,
-          environment,
-          P
-        );
-        excludedNames.push(P);
-      }
-    }
-    return NormalCompletion(Empty);
-  }
-
-  function EvaluatePropertyName(node: Expression): PropertyKey {
-    const propName = GetValue(Evaluate(node));
-    return ToPropertyKey(propName);
-  }
-
-  function RestBindingInitialization(
-    restProperty: RestElement,
-    value: unknown,
-    environment: EnvironmentRecord,
-    excludedNames: PropertyKey[]
-  ): CompletionRecord {
-    const lhs = ResolveBinding(
-      (restProperty.argument as Identifier).name,
-      environment
-    );
-    const restObj = CopyDataProperties({}, value, excludedNames);
-    if (!environment) {
-      return PutValue(lhs, restObj);
-    }
-    return InitializeReferencedBinding(lhs, restObj);
-  }
-
-  function CopyDataProperties(
-    target: Record<PropertyKey, unknown>,
-    source: unknown,
-    excludedItems: PropertyKey[]
-  ): Record<PropertyKey, unknown> {
-    if (source === undefined || source === null) {
-      return target;
-    }
-    const keys = (Object.getOwnPropertyNames(source) as PropertyKey[]).concat(
-      Object.getOwnPropertySymbols(source)
-    );
-    for (const nextKey of keys) {
-      if (!excludedItems.includes(nextKey)) {
-        const desc = Object.getOwnPropertyDescriptor(source, nextKey);
-        if (desc?.enumerable) {
-          target[nextKey] = (source as Record<PropertyKey, unknown>)[nextKey];
-        }
-      }
-    }
-    return target;
-  }
-
+  // https://tc39.es/ecma262/#sec-runtime-semantics-keyedbindinginitialization
   function KeyedBindingInitialization(
     node: EstreeLVal,
     value: unknown,
@@ -1538,6 +1691,7 @@ export function evaluate(
     );
   }
 
+  // https://tc39.es/ecma262/#sec-initializeboundname
   function InitializeBoundName(
     name: string,
     value: unknown,
@@ -1549,80 +1703,6 @@ export function evaluate(
     }
     const lhs = ResolveBinding(name);
     return PutValue(lhs, value);
-  }
-
-  function InstantiateFunctionObject(
-    func: FunctionDeclaration,
-    scope: EnvironmentRecord
-  ): FunctionObject {
-    const F = OrdinaryFunctionCreate(func.params, func.body, scope);
-    return F;
-  }
-
-  function InstantiateOrdinaryFunctionExpression(
-    functionExpression: FunctionExpression
-  ): FunctionObject {
-    const scope = getRunningContext().LexicalEnvironment;
-    if (functionExpression.id) {
-      const name = functionExpression.id.name;
-      const funcEnv = new DeclarativeEnvironment(scope);
-      funcEnv.CreateImmutableBinding(name, false);
-      const closure = OrdinaryFunctionCreate(
-        functionExpression.params,
-        functionExpression.body,
-        funcEnv
-      );
-      funcEnv.InitializeBinding(name, closure);
-      return closure;
-    } else {
-      const closure = OrdinaryFunctionCreate(
-        functionExpression.params,
-        functionExpression.body,
-        scope
-      );
-      return closure;
-    }
-  }
-
-  function InstantiateArrowFunctionExpression(
-    arrowFunction: ArrowFunctionExpression
-  ): FunctionObject {
-    const scope = getRunningContext().LexicalEnvironment;
-    const closure = OrdinaryFunctionCreate(
-      arrowFunction.params,
-      arrowFunction.body,
-      scope
-    );
-    return closure;
-  }
-
-  function OrdinaryFunctionCreate(
-    parameterList: FunctionDeclaration["params"],
-    body: BlockStatement | Expression,
-    scope: EnvironmentRecord
-  ): FunctionObject {
-    const F = function () {
-      // eslint-disable-next-line prefer-rest-params
-      return CallFunction(F, arguments);
-    } as FunctionObject;
-    Object.defineProperties(F, {
-      [FormalParameters]: {
-        enumerable: false,
-        writable: false,
-        value: parameterList,
-      },
-      [ECMAScriptCode]: {
-        enumerable: false,
-        writable: false,
-        value: body.type === "BlockStatement" ? body.body : body,
-      },
-      [Environment]: {
-        enumerable: false,
-        writable: false,
-        value: scope,
-      },
-    });
-    return F;
   }
 
   if (expressionOnly) {
