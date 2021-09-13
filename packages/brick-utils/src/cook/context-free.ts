@@ -11,7 +11,6 @@ import {
   ReferenceRecord,
 } from "./ExecutionContext";
 import { collectBoundNames } from "./traverse";
-import { isIterable } from "./utils";
 
 // https://tc39.es/ecma262/#sec-ispropertyreference
 export function IsPropertyReference(V: ReferenceRecord): boolean {
@@ -56,7 +55,7 @@ export function ForDeclarationBindingInstantiation(
   env: EnvironmentRecord
 ): void {
   const isConst = forDeclaration.kind === "const";
-  for (const name of collectBoundNames(forDeclaration.declarations)) {
+  for (const name of collectBoundNames(forDeclaration)) {
     if (isConst) {
       env.CreateImmutableBinding(name, true);
     } else {
@@ -241,4 +240,14 @@ export function ApplyUnaryOperator(
       return undefined;
   }
   throw new SyntaxError(`Unsupported unary operator \`${operator}\``);
+}
+
+export function isIterable(cooked: unknown): boolean {
+  if (Array.isArray(cooked)) {
+    return true;
+  }
+  if (cooked === null || cooked === undefined) {
+    return false;
+  }
+  return typeof (cooked as Iterable<unknown>)[Symbol.iterator] === "function";
 }

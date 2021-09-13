@@ -142,12 +142,14 @@ export interface BindingState {
 export const FormalParameters = Symbol.for("FormalParameters");
 export const ECMAScriptCode = Symbol.for("ECMAScriptCode");
 export const Environment = Symbol.for("Environment");
+export const IsConstructor = Symbol.for("IsConstructor");
 
 export interface FunctionObject {
   (...args: unknown[]): unknown;
   [FormalParameters]: FunctionDeclaration["params"];
   [ECMAScriptCode]: Statement[] | Expression;
   [Environment]: EnvironmentRecord;
+  [IsConstructor]: boolean;
 }
 
 // https://tc39.es/ecma262/#sec-reference-record-specification-type

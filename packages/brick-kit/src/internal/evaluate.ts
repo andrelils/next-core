@@ -5,7 +5,9 @@ import {
   hasOwnProperty,
   isEvaluable,
   preevaluate,
+  PreevaluateResult,
   shouldAllowRecursiveEvaluations,
+  supply,
 } from "@next-core/brick-utils";
 import { MicroApp } from "@next-core/brick-types";
 import { _internalApiGetCurrentContext } from "../core/Runtime";
@@ -83,7 +85,7 @@ export function evaluate(
   }
 
   // A `SyntaxError` maybe thrown.
-  let precooked: ReturnType<typeof preevaluate>;
+  let precooked: PreevaluateResult;
   try {
     precooked = preevaluate(raw);
   } catch (error) {
@@ -277,7 +279,9 @@ export function evaluate(
   }
 
   try {
-    const result = cook(precooked, globalVariables);
+    const result = cook(precooked.expression, precooked.source, {
+      globalVariables: supply(precooked.attemptToVisitGlobals, globalVariables),
+    });
     const detail = { raw, context: globalVariables, result };
     if (options.isReEvaluation) {
       devtoolsHookEmit("re-evaluation", {

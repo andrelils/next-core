@@ -1,5 +1,5 @@
 import { FunctionDeclaration, VariableDeclaration } from "@babel/types";
-import { EstreeNode } from "./interfaces";
+import { EstreeNode, NodeWithBoundNames } from "./interfaces";
 
 type InternalCollect<T = void, O = unknown> = (
   node: EstreeNode | EstreeNode[],
@@ -10,7 +10,9 @@ type InternalCollectWithOptions<T = void, O = unknown> = (
   options: O
 ) => T;
 
-export function collectBoundNames(root: EstreeNode | EstreeNode[]): string[] {
+export function collectBoundNames(
+  root: NodeWithBoundNames | NodeWithBoundNames[]
+): string[] {
   const names = new Set<string>();
   const collect: InternalCollect = (node) => {
     if (Array.isArray(node)) {

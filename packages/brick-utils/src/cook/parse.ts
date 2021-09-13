@@ -1,7 +1,7 @@
 import { parse, parseExpression, ParserPlugin } from "@babel/parser";
 import { Expression, FunctionDeclaration, Statement } from "@babel/types";
 
-export function parseEstreeExpression(source: string): Expression {
+export function parseAsEstreeExpression(source: string): Expression {
   return parseExpression(source, {
     plugins: ["estree", ["pipelineOperator", { proposal: "minimal" }]],
     strictMode: true,
@@ -12,16 +12,14 @@ export interface ParseEstreeOptions {
   typescript?: boolean;
 }
 
-export function parseEstree(
+export function parseAsEstree(
   source: string,
   { typescript }: ParseEstreeOptions = {}
 ): FunctionDeclaration {
   const file = parse(source, {
-    plugins: [
-      "estree",
-      ["pipelineOperator", { proposal: "minimal" }],
-      typescript && "typescript",
-    ].filter(Boolean) as ParserPlugin[],
+    plugins: ["estree", typescript && "typescript"].filter(
+      Boolean
+    ) as ParserPlugin[],
     strictMode: true,
   });
   const body = file.program.body;
